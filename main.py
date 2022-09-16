@@ -1,10 +1,9 @@
 import codecs
 import sys
 
-from hacpplint import ParseArguments, ProcessFile, _CppLintState
+from halint import ParseArguments, ProcessFile, _cpplint_state
 
 
-_cpplint_state = _CppLintState()
 
 def main():
   filenames = ParseArguments(sys.argv[1:])

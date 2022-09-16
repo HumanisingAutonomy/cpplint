@@ -39,7 +39,7 @@ import shutil
 import tempfile
 from testfixtures import compare
 
-BASE_CMD = sys.executable + ' ' + os.path.abspath('./cpplint.py ')
+BASE_CMD = sys.executable + ' ' + os.path.abspath('./main.py ')
 
 def RunShellCommand(cmd, cwd='.'):
     """

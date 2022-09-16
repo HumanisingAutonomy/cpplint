@@ -64,7 +64,6 @@ import xml.etree.ElementTree
 # if empty, use defaults
 _valid_extensions = set([])
 
-__VERSION__ = '1.6.1'
 
 try:
   #  -- pylint: disable=used-before-assignment
@@ -6721,7 +6720,8 @@ def PrintUsage(message):
 
 def PrintVersion():
   sys.stdout.write('Cpplint fork (https://github.com/cpplint/cpplint)\n')
-  sys.stdout.write('cpplint ' + __VERSION__ + '\n')
+  #TODO: fix printing version number
+  sys.stdout.write('cpplint ' + "FIXME" + '\n')
   sys.stdout.write('Python ' + sys.version + '\n')
   sys.exit(0)
 

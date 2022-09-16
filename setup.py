@@ -40,7 +40,7 @@ def read_without_comments(filename):
     with open(filename) as f:
         return [line for line in f.read().splitlines() if not len(line) == 0 and not line.startswith('#')]
 
-test_required = read_without_comments('test-requirements')
+test_required = read_without_comments('requirements-test.txt')
 
 setup(name='cpplint',
       version=cpplint.__VERSION__,
@@ -58,13 +58,6 @@ setup(name='cpplint',
       maintainer='cpplint Developers',
       maintainer_email='see_github@nospam.com',
       classifiers=['Programming Language :: Python',
-                   'Programming Language :: Python :: 2',
-                   'Programming Language :: Python :: 2.7',
-                   'Programming Language :: Python :: 3',
-                   'Programming Language :: Python :: 3.6',
-                   'Programming Language :: Python :: 3.7',
-                   'Programming Language :: Python :: 3.8',
-                   'Programming Language :: Python :: 3.9',
                    'Programming Language :: Python :: 3.10',
                    'Programming Language :: C++',
                    'Development Status :: 5 - Production/Stable',
@@ -81,7 +74,7 @@ setup(name='cpplint',
       # extras_require allow pip install .[dev]
       extras_require={
           'test': test_required,
-          'dev': read_without_comments('dev-requirements') + test_required
+          'dev': read_without_comments('requirements-dev.txt') + test_required
       },
       cmdclass={
           'lint': Lint

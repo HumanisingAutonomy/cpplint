@@ -1,8 +1,8 @@
 # MANIFEST.in file required to deliver test files with source tar
 include *.py
 include LICENSE
-include test-requirements
-include dev-requirements
+include requirements-test.txt
+include requirements-dev.txt
 
 # all samples for clitest
 graft samples

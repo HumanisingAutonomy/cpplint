@@ -1,5 +1,6 @@
 from multiprocessing.sharedctypes import Value
 import sys
+from typing import Union
 
 import halint.cpplint as cpplint
 
@@ -15,24 +16,24 @@ class ErrorCollector(object):
         self._errors = []
         cpplint.ResetNolintSuppressions()
 
-    def __call__(self, unused_filename, linenum,
-                 category, confidence, message):
+    def __call__(self, unused_filename: str, linenum: int,
+                 category: str, confidence: int, message: str):
         if category not in self._ERROR_CATEGORIES:
             raise ValueError(f'Message {message} has category {category}, which is not in _ERROR_CATEGORIES')
         self._SEEN_ERROR_CATEGORIES[category] = 1
         if cpplint._ShouldPrintError(cpplint._cpplint_state, category, confidence, linenum):
             self._errors.append('%s  [%s] [%d]' % (message, category, confidence))
 
-    def Results(self):
-        if len(self._errors) < 2:
+    def Results(self) -> Union[str, list[str]]:
+        if len(self._errors) <= 1:
             return ''.join(self._errors)  # Most tests expect to have a string.
         else:
             return self._errors  # Let's give a list if there is more than one.
 
-    def ResultList(self):
+    def ResultList(self) -> list[str]:
         return self._errors
 
-    def VerifyAllCategoriesAreSeen(self):
+    def VerifyAllCategoriesAreSeen(self) -> None:
         """Fails if there's a category in _ERROR_CATEGORIES~_SEEN_ERROR_CATEGORIES.
 
         This should only be called after all tests are run, so
@@ -45,7 +46,7 @@ class ErrorCollector(object):
             if category not in self._SEEN_ERROR_CATEGORIES:
                 sys.exit('FATAL ERROR: There are no tests for category "%s"' % category)
 
-    def RemoveIfPresent(self, substr):
+    def RemoveIfPresent(self, substr: str) -> None:
         for (index, error) in enumerate(self._errors):
             if error.find(substr) != -1:
                 self._errors = self._errors[0:index] + self._errors[(index + 1):]

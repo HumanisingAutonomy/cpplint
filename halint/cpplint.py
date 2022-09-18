@@ -54,6 +54,7 @@ import re
 import string
 import sys
 import sysconfig
+from typing import Callable
 import unicodedata
 
 from ._cpplintstate import _CppLintState
@@ -4262,8 +4263,8 @@ def FlagCxx14Features(filename, clean_lines, linenum, error):
               ('<%s> is an unapproved C++14 header.') % include.group(1))
 
 
-def ProcessFileData(filename, file_extension, lines, error,
-                    extra_check_functions=None):
+def ProcessFileData(filename: str, file_extension: str, lines: list[str], error: Callable[[str, int, int, str],None],
+                    extra_check_functions=None) -> None:
     """Performs lint checks and reports any errors to the given error function.
 
     Args:

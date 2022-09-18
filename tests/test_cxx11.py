@@ -67,16 +67,16 @@ class TestCxx11(CpplintTestBase):
         self.TestCxx11Feature('std::declval<T>()', '')
 
     def testExplicitMakePair(self):
-        self.TestLint('make_pair', '')
-        self.TestLint('make_pair(42, 42)', '')
-        self.TestLint('make_pair<',
+        self.TestSingleLineLint('make_pair', '')
+        self.TestSingleLineLint('make_pair(42, 42)', '')
+        self.TestSingleLineLint('make_pair<',
                       'For C++11-compatibility, omit template arguments from'
                       ' make_pair OR use pair directly OR if appropriate,'
                       ' construct a pair directly'
                       '  [build/explicit_make_pair] [4]')
-        self.TestLint('make_pair <',
+        self.TestSingleLineLint('make_pair <',
                       'For C++11-compatibility, omit template arguments from'
                       ' make_pair OR use pair directly OR if appropriate,'
                       ' construct a pair directly'
                       '  [build/explicit_make_pair] [4]')
-        self.TestLint('my_make_pair<int, int>', '')
+        self.TestSingleLineLint('my_make_pair<int, int>', '')

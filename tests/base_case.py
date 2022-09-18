@@ -1,12 +1,16 @@
 from abc import ABC
 import codecs
+from distutils.log import error
+import pathlib
 import re
 import os
+from typing import Optional, Union
 
 import pytest
 
 import halint.cpplint as cpplint
 from halint import _CppLintState
+from halint.nesting_state import NestingState
 
 from .utils.error_collector import ErrorCollector
 
@@ -28,7 +32,7 @@ class CpplintTestBase(ABC):
         clean_lines = cpplint.CleansedLines(lines)
         include_state = cpplint._IncludeState()
         function_state = cpplint._FunctionState()
-        nesting_state = cpplint.NestingState()
+        nesting_state = NestingState()
         cpplint.ProcessLine(cpplint._cpplint_state, 'foo.cc', 'cc', clean_lines, 0,
                             include_state, function_state,
                             nesting_state, error_collector)
@@ -39,12 +43,12 @@ class CpplintTestBase(ABC):
         return error_collector.Results()
 
     # Perform lint over multiple lines and return the error message.
-    def PerformMultiLineLint(self, state, code):
+    def PerformMultiLineLint(self, state: _CppLintState, code: str):
         error_collector = ErrorCollector()
         lines = code.split('\n')
         cpplint.RemoveMultiLineComments('foo.h', lines, error_collector)
         lines = cpplint.CleansedLines(lines)
-        nesting_state = cpplint.NestingState()
+        nesting_state = NestingState()
         for i in range(lines.NumLines()):
             nesting_state.Update('foo.h', lines, i, error_collector)
             cpplint.CheckStyle(state, 'foo.h', lines, i, 'h', nesting_state,
@@ -59,7 +63,7 @@ class CpplintTestBase(ABC):
     def PerformLanguageRulesCheck(self, file_name, code):
         error_collector = ErrorCollector()
         include_state = cpplint._IncludeState()
-        nesting_state = cpplint.NestingState()
+        nesting_state = NestingState()
         lines = code.split('\n')
         cpplint.RemoveMultiLineComments(file_name, lines, error_collector)
         lines = cpplint.CleansedLines(lines)
@@ -116,11 +120,38 @@ class CpplintTestBase(ABC):
         return error_collector.Results()
 
     # Perform lint and compare the error message with "expected_message".
-    def TestLint(self, code, expected_message):
+    def TestSingleLineLint(self, code, expected_message):
         assert expected_message == self.PerformSingleLineLint(code)
 
     def TestMultiLineLint(self, state: _CppLintState, code, expected_message):
         assert expected_message == self.PerformMultiLineLint(state, code)
+
+    def TestFile(self, state: _CppLintState, code: list[str], expected_message: list[str], filename: Optional[str]=None):
+        error_collector = ErrorCollector()
+        cpplint.ProcessFileData(
+            filename,
+            pathlib.Path(filename).suffix,
+            code,
+            error_collector)
+        assert expected_message == error_collector.Results()
+
+    def TestFileWithMessageCounts(self, state:_CppLintState, code: list[str], filename, expected_messages: dict[str, int]):
+        error_collector = ErrorCollector()
+        cpplint.ProcessFileData(
+            filename,
+            pathlib.Path(filename).suffix,
+            code,
+            error_collector
+        )
+        for error, count in expected_messages.items():
+            assert error_collector.ResultList().count(error) == count
+
+
+    def TestLint(self, state: _CppLintState, code: Union[str, list[str]], expected_message: list[str]):
+        if '\n' in expected_message:
+            self.TestMultiLineLint(state, code, expected_message)
+        else:
+            self.TestSingleLineLint(code, expected_message)
 
     def TestMultiLineLintRE(self, code, expected_message_re):
         message = self.PerformMultiLineLint(cpplint._cpplint_state, code)

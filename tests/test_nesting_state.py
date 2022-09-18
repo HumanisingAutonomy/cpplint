@@ -1,13 +1,14 @@
 import pytest
 
 import halint.cpplint as cpplint
+from halint.nesting_state import NestingState
 from .utils.error_collector import ErrorCollector
 
 class TestNestingState:
 
     @pytest.fixture(autouse=True)
     def setUp(self):
-        self.nesting_state = cpplint.NestingState()
+        self.nesting_state = NestingState()
         self.error_collector = ErrorCollector()
 
     def UpdateWithLines(self, lines):

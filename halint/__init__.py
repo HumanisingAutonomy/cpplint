@@ -1,4 +1,5 @@
-from .cpplint import ParseArguments, ProcessFile, _CppLintState
+from .cpplint import _CppLintState
+from .cli import ParseArguments, ProcessFile
 
 __all__  = ["ParseArguments", "ProcessFile", "_CppLintState"]
 

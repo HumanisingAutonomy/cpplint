@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 import halint.cpplint as cpplint
+import halint.cli as cli
 
 from .base_case import CpplintTestBase
 from .utils.error_collector import ErrorCollector
@@ -183,13 +184,13 @@ class TestCpplint(CpplintTestBase):
             'Lines should be <= 80 characters long'
             '  [whitespace/line_length] [2]')
         self.TestLint(
-            '  /// @copydoc ' + ('o' * (cpplint._line_length * 2)),
+            '  /// @copydoc ' + ('o' * (cpplint._cpplint_state._line_length * 2)),
             '')
         self.TestLint(
-            '  /// @copydetails ' + ('o' * (cpplint._line_length * 2)),
+            '  /// @copydetails ' + ('o' * (cpplint._cpplint_state._line_length * 2)),
             '')
         self.TestLint(
-            '  /// @copybrief ' + ('o' * (cpplint._line_length * 2)),
+            '  /// @copybrief ' + ('o' * (cpplint._cpplint_state._line_length * 2)),
             '')
 
     # Test error suppression annotations.
@@ -3684,83 +3685,83 @@ class TestCpplint(CpplintTestBase):
     def testParseArguments(self):
         old_output_format = cpplint._cpplint_state.output_format
         old_verbose_level = cpplint._cpplint_state.verbose_level
-        old_headers = cpplint._hpp_headers
+        old_headers = cpplint._cpplint_state._hpp_headers
         old_filters = cpplint._cpplint_state.filters
-        old_line_length = cpplint._line_length
-        old_valid_extensions = cpplint._valid_extensions
+        old_line_length = cpplint._cpplint_state._line_length
+        old_valid_extensions = cpplint._cpplint_state._valid_extensions
         try:
             # Don't print usage during the tests, or filter categories
             sys.stdout = open(os.devnull, 'w')
             sys.stderr = open(os.devnull, 'w')
 
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments(cpplint._cpplint_state, [])
+                cli.ParseArguments(cpplint._cpplint_state, [])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments( cpplint._cpplint_state, ['--badopt'])
+                cli.ParseArguments( cpplint._cpplint_state, ['--badopt'])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments( cpplint._cpplint_state, ['--help'])
+                cli.ParseArguments( cpplint._cpplint_state, ['--help'])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments( cpplint._cpplint_state, ['--version'])
+                cli.ParseArguments( cpplint._cpplint_state, ['--version'])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments( cpplint._cpplint_state, ['--v=0'])
+                cli.ParseArguments( cpplint._cpplint_state, ['--v=0'])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments( cpplint._cpplint_state, ['--filter='])
+                cli.ParseArguments( cpplint._cpplint_state, ['--filter='])
             # This is illegal because all filters must start with + or -
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments(cpplint._cpplint_state, ['--filter=foo'])
+                cli.ParseArguments(cpplint._cpplint_state, ['--filter=foo'])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments(cpplint._cpplint_state, ['--filter=+a,b,-c'])
+                cli.ParseArguments(cpplint._cpplint_state, ['--filter=+a,b,-c'])
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments(cpplint._cpplint_state, ['--headers'])
+                cli.ParseArguments(cpplint._cpplint_state, ['--headers'])
 
-            assert ['foo.cc'] == cpplint.ParseArguments(cpplint._cpplint_state, ['foo.cc'])
+            assert ['foo.cc'] == cli.ParseArguments(cpplint._cpplint_state, ['foo.cc'])
             assert old_output_format == cpplint._cpplint_state.output_format
             assert old_verbose_level == cpplint._cpplint_state.verbose_level
 
-            assert ['foo.cc'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--v=1', 'foo.cc'])
+            assert ['foo.cc'] == cli.ParseArguments(cpplint._cpplint_state, ['--v=1', 'foo.cc'])
             assert 1 == cpplint._cpplint_state.verbose_level
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--v=3', 'foo.h'])
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--v=3', 'foo.h'])
             assert 3 == cpplint._cpplint_state.verbose_level
-            assert ['foo.cpp'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--verbose=5', 'foo.cpp'])
+            assert ['foo.cpp'] == cli.ParseArguments(cpplint._cpplint_state, ['--verbose=5', 'foo.cpp'])
             assert 5 == cpplint._cpplint_state.verbose_level
             with pytest.raises(ValueError):
-                cpplint.ParseArguments(cpplint._cpplint_state, ['--v=f', 'foo.cc'])
+                cli.ParseArguments(cpplint._cpplint_state, ['--v=f', 'foo.cc'])
 
-            assert ['foo.cc'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--output=emacs', 'foo.cc'])
+            assert ['foo.cc'] == cli.ParseArguments(cpplint._cpplint_state, ['--output=emacs', 'foo.cc'])
             assert 'emacs' == cpplint._cpplint_state.output_format
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--output=vs7', 'foo.h'])
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--output=vs7', 'foo.h'])
             assert 'vs7' == cpplint._cpplint_state.output_format
             with pytest.raises(SystemExit):
-                cpplint.ParseArguments( cpplint._cpplint_state, ['--output=blah', 'foo.cc'])
+                cli.ParseArguments( cpplint._cpplint_state, ['--output=blah', 'foo.cc'])
 
             filt = '-,+whitespace,-whitespace/indent'
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--filter='+filt, 'foo.h'])
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--filter='+filt, 'foo.h'])
             assert ['-', '+whitespace', '-whitespace/indent'] == cpplint._cpplint_state.filters
 
-            assert ['foo.cc', 'foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['foo.cc', 'foo.h'])
+            assert ['foo.cc', 'foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['foo.cc', 'foo.h'])
 
-            cpplint._hpp_headers = old_headers
-            cpplint._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--linelength=120', 'foo.h'])
-            assert 120 == cpplint._line_length
-            assert set(['h', 'hh', 'hpp', 'hxx', 'h++', 'cuh']) == cpplint.GetHeaderExtensions()
+            cpplint._cpplint_state._hpp_headers = old_headers
+            cpplint._cpplint_state._valid_extensions = old_valid_extensions
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--linelength=120', 'foo.h'])
+            assert 120 == cpplint._cpplint_state._line_length
+            assert set(['h', 'hh', 'hpp', 'hxx', 'h++', 'cuh']) ==cpplint._cpplint_state.GetHeaderExtensions()
 
-            cpplint._hpp_headers = old_headers
-            cpplint._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--headers=h', 'foo.h'])
-            assert set(['h', 'c', 'cc', 'cpp', 'cxx', 'c++', 'cu']) == cpplint.GetAllExtensions()
+            cpplint._cpplint_state._hpp_headers = old_headers
+            cpplint._cpplint_state._valid_extensions = old_valid_extensions
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--headers=h', 'foo.h'])
+            assert set(['h', 'c', 'cc', 'cpp', 'cxx', 'c++', 'cu']) == cpplint._cpplint_state.GetAllExtensions()
 
-            cpplint._hpp_headers = old_headers
-            cpplint._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--extensions=hpp,cpp,cpp', 'foo.h'])
-            assert set(['hpp', 'cpp']) == cpplint.GetAllExtensions()
-            assert set(['hpp']) == cpplint.GetHeaderExtensions()
+            cpplint._cpplint_state._hpp_headers = old_headers
+            cpplint._cpplint_state._valid_extensions = old_valid_extensions
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--extensions=hpp,cpp,cpp', 'foo.h'])
+            assert set(['hpp', 'cpp']) ==cpplint._cpplint_state.GetAllExtensions()
+            assert set(['hpp']) ==cpplint._cpplint_state.GetHeaderExtensions()
 
-            cpplint._hpp_headers = old_headers
-            cpplint._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cpplint.ParseArguments(cpplint._cpplint_state, ['--extensions=cpp,cpp', '--headers=hpp,h', 'foo.h'])
-            assert set(['hpp', 'h']) == cpplint.GetHeaderExtensions()
-            assert set(['hpp', 'h', 'cpp']) == cpplint.GetAllExtensions()
+            cpplint._cpplint_state._hpp_headers = old_headers
+            cpplint._cpplint_state._valid_extensions = old_valid_extensions
+            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--extensions=cpp,cpp', '--headers=hpp,h', 'foo.h'])
+            assert set(['hpp', 'h']) ==cpplint._cpplint_state.GetHeaderExtensions()
+            assert set(['hpp', 'h', 'cpp']) ==cpplint._cpplint_state.GetAllExtensions()
 
         finally:
             sys.stdout == sys.__stdout__
@@ -3768,9 +3769,9 @@ class TestCpplint(CpplintTestBase):
             cpplint._cpplint_state.output_format = old_output_format
             cpplint._cpplint_state.verbose_level = old_verbose_level
             cpplint._cpplint_state.filters = old_filters
-            cpplint._line_length = old_line_length
-            cpplint._valid_extensions = old_valid_extensions
-            cpplint._hpp_headers = old_headers
+            cpplint._cpplint_state._line_length = old_line_length
+            cpplint._cpplint_state._valid_extensions = old_valid_extensions
+            cpplint._cpplint_state._hpp_headers = old_headers
 
     def testRecursiveArgument(self):
         working_dir = os.getcwd()
@@ -3785,8 +3786,8 @@ class TestCpplint(CpplintTestBase):
             os.chdir(temp_dir)
             expected = ['one.cpp', os.path.join('src', 'two.cpp'),
                         os.path.join('src', 'nested', 'three.cpp')]
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['--recursive', 'one.cpp', 'src'])
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive', 'one.cpp', 'src'])
             assert set(expected) == set(actual)
         finally:
             os.chdir(working_dir)
@@ -3803,8 +3804,8 @@ class TestCpplint(CpplintTestBase):
             open(os.path.join(src_dir, "three.cc"), 'w').close()
             os.chdir(temp_dir)
             expected = ['one.cpp', os.path.join('src', 'two.cpp')]
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['--recursive', '--extensions=cpp',
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive', '--extensions=cpp',
                 'one.cpp', 'src'])
             assert set(expected) == set(actual)
         finally:
@@ -3834,23 +3835,23 @@ class TestCpplint(CpplintTestBase):
               os.path.join('src', 'two.cc'),
               os.path.join('src', 'three.cc')
             ]
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['src'])
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['src'])
             assert set(['src']) == set(actual)
 
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['--recursive', 'src'])
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive', 'src'])
             assert set(expected) == set(actual)
 
             expected = [os.path.join('src', 'one.cc')]
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['--recursive',
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive',
                 '--exclude=src{0}t*'.format(os.sep), 'src'])
             assert set(expected) == set(actual)
 
             expected = [os.path.join('src', 'one.cc')]
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['--recursive',
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive',
                 '--exclude=src/two.cc', '--exclude=src/three.cc', 'src'])
             assert set(expected) == set(actual)
 
@@ -3859,8 +3860,8 @@ class TestCpplint(CpplintTestBase):
               os.path.join('src2', 'two.cc'),
               os.path.join('src2', 'three.cc')
             ])
-            cpplint._excludes = None
-            actual = cpplint.ParseArguments(cpplint._cpplint_state, ['--recursive',
+            cli._excludes = None
+            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive',
                 '--exclude=src', '.'])
             assert expected == set(actual)
         finally:
@@ -3933,13 +3934,13 @@ class TestCpplint(CpplintTestBase):
 
     def testQuiet(self):
         assert cpplint._cpplint_state.quiet == False
-        cpplint.ParseArguments(cpplint._cpplint_state, ['--quiet', 'one.cpp'])
+        cli.ParseArguments(cpplint._cpplint_state, ['--quiet', 'one.cpp'])
         assert cpplint._cpplint_state.quiet == True
 
     def testLineLength(self):
-        old_line_length = cpplint._line_length
+        old_line_length = cpplint._cpplint_state._line_length
         try:
-            cpplint._line_length = 80
+            cpplint._cpplint_state._line_length = 80
             self.TestLint(
                 '// H %s' % ('H' * 75),
                 '')
@@ -3947,7 +3948,7 @@ class TestCpplint(CpplintTestBase):
                 '// H %s' % ('H' * 76),
                 'Lines should be <= 80 characters long'
                 '  [whitespace/line_length] [2]')
-            cpplint._line_length = 120
+            cpplint._cpplint_state._line_length = 120
             self.TestLint(
                 '// H %s' % ('H' * 115),
                 '')
@@ -3956,7 +3957,7 @@ class TestCpplint(CpplintTestBase):
                 'Lines should be <= 120 characters long'
                 '  [whitespace/line_length] [2]')
         finally:
-            cpplint._line_length = old_line_length
+            cpplint._cpplint_state._line_length = old_line_length
 
     def testFilter(self):
         old_filters = cpplint._cpplint_state.filters
@@ -4306,7 +4307,7 @@ class TestCpplint(CpplintTestBase):
 
         # left-strip the header guard by using a root dir inside of the repo dir.
         # relative directory
-        cpplint._root = 'cpplint'
+        cpplint._cpplint_state._root = 'cpplint'
         assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
         nested_header_directory = os.path.join(header_directory, "nested")
@@ -4314,20 +4315,20 @@ class TestCpplint(CpplintTestBase):
         os.makedirs(nested_header_directory)
         open(nested_file_path, 'a').close()
 
-        cpplint._root = os.path.join('cpplint', 'nested')
+        cpplint._cpplint_state._root = os.path.join('cpplint', 'nested')
         actual = cpplint.GetHeaderGuardCPPVariable(nested_file_path)
         assert 'CPPLINT_TEST_HEADER_H_' == actual
 
         # absolute directory
         # (note that CPPLINT.cfg root=setting is always made absolute)
-        cpplint._root = header_directory
+        cpplint._cpplint_state._root = header_directory
         assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
-        cpplint._root = nested_header_directory
+        cpplint._cpplint_state._root = nested_header_directory
         assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(nested_file_path)
 
         # --root flag is ignored if an non-existent directory is specified.
-        cpplint._root = 'NON_EXISTENT_DIR'
+        cpplint._cpplint_state._root = 'NON_EXISTENT_DIR'
         assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
         # prepend to the header guard by using a root dir that is more outer
@@ -4339,7 +4340,7 @@ class TestCpplint(CpplintTestBase):
         (styleguide_path, this_files_dir) = os.path.split(this_files_path)
         (styleguide_parent_path, styleguide_dir_name) = os.path.split(styleguide_path)
         # parent dir of styleguide
-        cpplint._root = styleguide_parent_path
+        cpplint._cpplint_state._root = styleguide_parent_path
         assert styleguide_parent_path is not None
         # do not hardcode the 'styleguide' repository name, it could be anything.
         expected_prefix = re.sub(r'[^a-zA-Z0-9]', '_', styleguide_dir_name).upper() + '_'
@@ -4353,15 +4354,15 @@ class TestCpplint(CpplintTestBase):
         # (using relative paths)
         styleguide_rel_path = os.path.relpath(styleguide_path, this_files_path)
         # '..'
-        cpplint._root = styleguide_rel_path
+        cpplint._cpplint_state._root = styleguide_rel_path
         assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
         styleguide_rel_path = os.path.relpath(styleguide_parent_path,
                                               this_files_path)  # '../..'
-        cpplint._root = styleguide_rel_path
+        cpplint._cpplint_state._root = styleguide_rel_path
         assert '%sCPPLINT_CPPLINT_TEST_HEADER_H_' % (expected_prefix) == cpplint.GetHeaderGuardCPPVariable(file_path)
 
-        cpplint._root = None
+        cpplint._cpplint_state._root = None
 
         # Restore previous CWD.
         os.chdir(cur_dir)
@@ -4464,29 +4465,29 @@ class TestCpplint(CpplintTestBase):
             assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
             # use the provided repository root for header guards
-            cpplint._repository = os.path.relpath(trunk_dir)
+            cpplint._cpplint_state._repository = os.path.relpath(trunk_dir)
             assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
-            cpplint._repository = os.path.abspath(trunk_dir)
+            cpplint._cpplint_state._repository = os.path.abspath(trunk_dir)
             assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
             # ignore _repository if it doesnt exist
-            cpplint._repository = os.path.join(temp_directory, 'NON_EXISTANT')
+            cpplint._cpplint_state._repository = os.path.join(temp_directory, 'NON_EXISTANT')
             assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
             # ignore _repository if it exists but file isn't in it
-            cpplint._repository = os.path.relpath(temp_directory2)
+            cpplint._cpplint_state._repository = os.path.relpath(temp_directory2)
             assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
             # _root should be relative to _repository
-            cpplint._repository = os.path.relpath(trunk_dir)
-            cpplint._root = 'cpplint'
+            cpplint._cpplint_state._repository = os.path.relpath(trunk_dir)
+            cpplint._cpplint_state._root = 'cpplint'
             assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
 
         finally:
             shutil.rmtree(temp_directory)
             shutil.rmtree(temp_directory2)
-            cpplint._repository = None
-            cpplint._root = None
+            cpplint._cpplint_state._repository = None
+            cpplint._cpplint_state._root = None
 
     def testBuildInclude(self):
         # Test that include statements have slashes in them.

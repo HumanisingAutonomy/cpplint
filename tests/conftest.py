@@ -2,6 +2,7 @@ from re import I
 import pytest
 
 import halint.cpplint as cpplint
+from halint._cpplintstate import _CppLintState
 
 
 pytest.register_assert_rewrite("tests.base_case")
@@ -10,8 +11,10 @@ pytest.register_assert_rewrite("tests.base_case")
 def global_setUp():
     """Runs before all tests are executed.
     """
-    # Enable all filters, so we don't miss anything that is off by default.
+    # Reset state, in case a previous test didn't clear up properly
+    cpplint._cpplint_state = _CppLintState()
 
+    # Enable all filters, so we don't miss anything that is off by default.
     cpplint._cpplint_state._DEFAULT_FILTERS = []
     cpplint._cpplint_state.filters = ""
 

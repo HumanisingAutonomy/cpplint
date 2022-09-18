@@ -22,6 +22,7 @@ class _CppLintState(object):
     'gsed'
     ]
 
+
     def __init__(self):
         self._verbose_level = 1  # global setting.
         self._error_count = 0    # global count of reported errors
@@ -39,6 +40,42 @@ class _CppLintState(object):
         # can be written into the XML
         self._junit_errors = []
         self._junit_failures = []
+
+        # {str, set(int)}: a map from error categories to sets of linenumbers
+        # on which those errors are expected and should be suppressed.
+        self._error_suppressions = {}
+
+        # The root directory used for deriving header guard CPP variable.
+        # This is set by --root flag.
+        self._root = None
+        self._root_debug = False
+
+        # The top level repository directory. If set, _root is calculated relative to
+        # this directory instead of the directory containing version control artifacts.
+        # This is set by the --repository flag.
+        self._repository = None
+
+        # The allowed line length of files.
+        # This is set by --linelength flag.
+        self._line_length = 80
+
+        # This allows to use different include order rule than default
+        self._include_order = "default"
+
+        # {str, bool}: a map from error categories to booleans which indicate if the
+        # category should be suppressed for every line.
+        self._global_error_suppressions = {}
+
+        # Files to exclude from linting. This is set by the --exclude flag.
+        self._excludes = set()
+
+        # if empty, use defaults
+        self._valid_extensions = set([])
+
+        # Treat all headers starting with 'h' equally: .h, .hpp, .hxx etc.
+        # This is set by --headers flag.
+        self._hpp_headers = set([])
+
 
     @property
     def output_format(self):
@@ -207,3 +244,23 @@ class _CppLintState(object):
 
         xml_decl = '<?xml version="1.0" encoding="UTF-8" ?>\n'
         return xml_decl + xml.etree.ElementTree.tostring(testsuite, 'utf-8').decode('utf-8')
+
+    def IsHeaderExtension(self, file_extension):
+        return file_extension in self.GetHeaderExtensions()
+
+    def GetHeaderExtensions(self):
+        if self._hpp_headers:
+            return self._hpp_headers
+        if self._valid_extensions:
+            return {h for h in self._valid_extensions if 'h' in h}
+        return set(['h', 'hh', 'hpp', 'hxx', 'h++', 'cuh'])
+
+    # The allowed extensions for file names
+    # This is set by --extensions flag
+    def GetAllExtensions(self):
+        return self.GetHeaderExtensions().union(self._valid_extensions or set(
+        ['c', 'cc', 'cpp', 'cxx', 'c++', 'cu']))
+
+    def GetNonHeaderExtensions(self):
+        return self.GetAllExtensions().difference(self.GetHeaderExtensions())
+

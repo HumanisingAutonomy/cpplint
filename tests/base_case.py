@@ -28,7 +28,7 @@ class CpplintTestBase(ABC):
         include_state = cpplint._IncludeState()
         function_state = cpplint._FunctionState()
         nesting_state = cpplint.NestingState()
-        cpplint.ProcessLine('foo.cc', 'cc', clean_lines, 0,
+        cpplint.ProcessLine(cpplint._cpplint_state, 'foo.cc', 'cc', clean_lines, 0,
                             include_state, function_state,
                             nesting_state, error_collector)
         # Single-line lint tests are allowed to fail the 'unlintable function'

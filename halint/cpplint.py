@@ -142,20 +142,6 @@ _ERROR_CATEGORIES = [
     ]
 
 
-# These error categories are no inter enforced by cpplint, but for backwards-
-# compatibility they may still appear in NOLINT comments.
-_LEGACY_ERROR_CATEGORIES = [
-    'readability/streams',
-    'readability/function',
-    ]
-
-# These prefixes for categories should be ignored since they relate to other
-# tools which also use the NOLINT syntax, e.g. clang-tidy.
-_OTHER_NOLINT_CATEGORY_PREFIXES = [
-    'clang-analyzer',
-    ]
-
-
 # The default list of categories suppressed for C (not C++) files.
 _DEFAULT_C_SUPPRESSED_CATEGORIES = [
     'readability/casting',
@@ -616,39 +602,6 @@ _SED_FIXUPS = {
 }
 
 
-def ParseNolintSuppressions(filename, raw_line, linenum, error):
-    """Updates the global list of line error-suppressions.
-
-    Parses any NOLINT comments on the current line, updating the global
-    error_suppressions store.  Reports an error if the NOLINT comment
-    was malformed.
-
-    Args:
-      filename: str, the name of the input file.
-      raw_line: str, the line of input text, with comments.
-      linenum: int, the number of the current line.
-      error: function, an error handler.
-    """
-    matched = Search(r'\bNOLINT(NEXTLINE)?\b(\([^)]+\))?', raw_line)
-    if matched:
-        if matched.group(1):
-            suppressed_line = linenum + 1
-        else:
-            suppressed_line = linenum
-        category = matched.group(2)
-        if category in (None, '(*)'):  # => "suppress all"
-            _cpplint_state._error_suppressions.setdefault(None, set()).add(suppressed_line)
-        else:
-            if category.startswith('(') and category.endswith(')'):
-                category = category[1:-1]
-                if category in _ERROR_CATEGORIES:
-                   _cpplint_state._error_suppressions.setdefault(category, set()).add(suppressed_line)
-                elif any(c for c in _OTHER_NOLINT_CATEGORY_PREFIXES if category.startswith(c)):
-                    # Ignore any categories from other tools.
-                    pass
-                elif category not in _LEGACY_ERROR_CATEGORIES:
-                    error(filename, linenum, 'readability/nolint', 5,
-                          'Unknown NOLINT error category: %s' % category)
 
 
 def ProcessGlobalSuppresions(lines):
@@ -1247,13 +1200,13 @@ def CheckForHeaderGuard(filename, clean_lines, error):
         if ifndef != cppvar + '_':
             error_level = 5
 
-        ParseNolintSuppressions(filename, raw_lines[ifndef_linenum], ifndef_linenum,
+        ParseNolintSuppressions(_cpplint_state, filename, raw_lines[ifndef_linenum], ifndef_linenum,
                                 error)
         error(filename, ifndef_linenum, 'build/header_guard', error_level,
               '#ifndef header guard has wrong style, please use: %s' % cppvar)
 
     # Check for "//" comments on endif line.
-    ParseNolintSuppressions(filename, raw_lines[endif_linenum], endif_linenum,
+    ParseNolintSuppressions(_cpplint_state, filename, raw_lines[endif_linenum], endif_linenum,
                             error)
     match = Match(r'#endif\s*//\s*' + cppvar + r'(_)?\b', endif)
     if match:
@@ -1773,6 +1726,52 @@ def IsBlankLine(line):
     """
     return not line or line.isspace()
 
+from .check_lines import ParseNolintSuppressions
+
+def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line,
+                include_state, function_state, nesting_state, error,
+                extra_check_functions=None):
+    """Processes a single line in the file.
+
+    Args:
+      filename: Filename of the file that is being processed.
+      file_extension: The extension (dot not included) of the file.
+      clean_lines: An array of strings, each representing a line of the file,
+                   with comments stripped.
+      line: Number of line being processed.
+      include_state: An _IncludeState instance in which the headers are inserted.
+      function_state: A _FunctionState instance which counts function lines, etc.
+      nesting_state: A NestingState instance which maintains information about
+                     the current stack of nested blocks being parsed.
+      error: A callable to which errors are reported, which takes 4 arguments:
+             filename, line number, error level, and message
+      extra_check_functions: An array of additional check functions that will be
+                             run on each source line. Each function takes 4
+                             arguments: filename, clean_lines, line, error
+    """
+    raw_lines = clean_lines.raw_lines
+    ParseNolintSuppressions(_cpplint_state, filename, raw_lines[line], line, error)
+    nesting_state.Update(filename, clean_lines, line, error)
+    CheckForNamespaceIndentation(filename, nesting_state, clean_lines, line,
+                                 error)
+    if nesting_state.InAsmBlock(): return
+    CheckForFunctionLengths(_cpplint_state, filename, clean_lines, line, function_state, error)
+    CheckForMultilineCommentsAndStrings(filename, clean_lines, line, error)
+    CheckStyle(filename, clean_lines, line, file_extension, nesting_state, error)
+    CheckLanguage(filename, clean_lines, line, file_extension, include_state,
+                  nesting_state, error)
+    CheckForNonConstReference(filename, clean_lines, line, nesting_state, error)
+    CheckForNonStandardConstructs(filename, clean_lines, line,
+                                  nesting_state, error)
+    CheckVlogArguments(filename, clean_lines, line, error)
+    CheckPosixThreading(filename, clean_lines, line, error)
+    CheckInvalidIncrement(filename, clean_lines, line, error)
+    CheckMakePairUsesDeduction(filename, clean_lines, line, error)
+    CheckRedundantVirtual(filename, clean_lines, line, error)
+    CheckRedundantOverrideOrFinal(filename, clean_lines, line, error)
+    if extra_check_functions:
+        for check_fn in extra_check_functions:
+            check_fn(filename, clean_lines, line, error)
 
 def CheckForNamespaceIndentation(filename, nesting_state, clean_lines, line,
                                  error):
@@ -2735,9 +2734,9 @@ def CheckTrailingSemicolon(filename, clean_lines, linenum, error):
 
             # We need to check the line forward for NOLINT
             raw_lines = clean_lines.raw_lines
-            ParseNolintSuppressions(filename, raw_lines[endlinenum-1], endlinenum-1,
+            ParseNolintSuppressions(_cpplint_state, filename, raw_lines[endlinenum-1], endlinenum-1,
                                     error)
-            ParseNolintSuppressions(filename, raw_lines[endlinenum], endlinenum,
+            ParseNolintSuppressions(_cpplint_state, filename, raw_lines[endlinenum], endlinenum,
                                     error)
 
             error(filename, endlinenum, 'readability/braces', 4,
@@ -4584,50 +4583,6 @@ def CheckItemIndentationInNamespace(filename, raw_lines_no_comments, linenum,
               'Do not indent within a namespace')
 
 
-def ProcessLine(filename, file_extension, clean_lines, line,
-                include_state, function_state, nesting_state, error,
-                extra_check_functions=None):
-    """Processes a single line in the file.
-
-    Args:
-      filename: Filename of the file that is being processed.
-      file_extension: The extension (dot not included) of the file.
-      clean_lines: An array of strings, each representing a line of the file,
-                   with comments stripped.
-      line: Number of line being processed.
-      include_state: An _IncludeState instance in which the headers are inserted.
-      function_state: A _FunctionState instance which counts function lines, etc.
-      nesting_state: A NestingState instance which maintains information about
-                     the current stack of nested blocks being parsed.
-      error: A callable to which errors are reported, which takes 4 arguments:
-             filename, line number, error level, and message
-      extra_check_functions: An array of additional check functions that will be
-                             run on each source line. Each function takes 4
-                             arguments: filename, clean_lines, line, error
-    """
-    raw_lines = clean_lines.raw_lines
-    ParseNolintSuppressions(filename, raw_lines[line], line, error)
-    nesting_state.Update(filename, clean_lines, line, error)
-    CheckForNamespaceIndentation(filename, nesting_state, clean_lines, line,
-                                 error)
-    if nesting_state.InAsmBlock(): return
-    CheckForFunctionLengths(_cpplint_state, filename, clean_lines, line, function_state, error)
-    CheckForMultilineCommentsAndStrings(filename, clean_lines, line, error)
-    CheckStyle(filename, clean_lines, line, file_extension, nesting_state, error)
-    CheckLanguage(filename, clean_lines, line, file_extension, include_state,
-                  nesting_state, error)
-    CheckForNonConstReference(filename, clean_lines, line, nesting_state, error)
-    CheckForNonStandardConstructs(filename, clean_lines, line,
-                                  nesting_state, error)
-    CheckVlogArguments(filename, clean_lines, line, error)
-    CheckPosixThreading(filename, clean_lines, line, error)
-    CheckInvalidIncrement(filename, clean_lines, line, error)
-    CheckMakePairUsesDeduction(filename, clean_lines, line, error)
-    CheckRedundantVirtual(filename, clean_lines, line, error)
-    CheckRedundantOverrideOrFinal(filename, clean_lines, line, error)
-    if extra_check_functions:
-        for check_fn in extra_check_functions:
-            check_fn(filename, clean_lines, line, error)
 
 def FlagCxx11Features(filename, clean_lines, linenum, error):
     """Flag those c++11 features that we only allow in certain places.
@@ -4733,7 +4688,7 @@ def ProcessFileData(filename, file_extension, lines, error,
         CheckForHeaderGuard(filename, clean_lines, error)
 
     for line in range(clean_lines.NumLines()):
-        ProcessLine(filename, file_extension, clean_lines, line,
+        ProcessLine(_cpplint_state, filename, file_extension, clean_lines, line,
                     include_state, function_state, nesting_state, error,
                     extra_check_functions)
         FlagCxx11Features(filename, clean_lines, line, error)

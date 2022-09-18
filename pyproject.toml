@@ -47,14 +47,11 @@ pylint="main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "halint"]
-# testpaths = ["tests"]
 python_files = "test_*.py"
-python_functions = "test_*"
+python_functions = "test*"
 junit_duration_report = "call"
 junit_suite_name = "halint"
 junit_family = "xunit1"
-# addopts = "--doctest-modules"
-bdd_features_base_dir = "integration_tests/features/"
 
 [tool.coverage.run]
 branch = true

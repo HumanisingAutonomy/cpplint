@@ -31,12 +31,17 @@
 
 """Command Line interface integration test for cpplint.py."""
 
+from enum import auto
 import os
 import sys
 import subprocess
 import unittest
 import shutil
 import tempfile
+import textwrap
+
+import pytest
+
 from testfixtures import compare
 
 BASE_CMD = sys.executable + ' ' + os.path.abspath('./main.py ')
@@ -51,6 +56,8 @@ def RunShellCommand(cmd, cwd='.'):
     stdout_target = subprocess.PIPE
     stderr_target = subprocess.PIPE
 
+    print(f"Running: {cmd}")
+
     proc = subprocess.Popen(cmd,
                             shell=True,
                             cwd=cwd,
@@ -61,15 +68,15 @@ def RunShellCommand(cmd, cwd='.'):
     return (proc.returncode, out, err)
 
 
-class UsageTest(unittest.TestCase):
+class TestUsage():
 
     def testHelp(self):
         (status, out, err) = RunShellCommand(BASE_CMD + ' --help')
-        self.assertEqual(0, status)
-        self.assertEqual(b'', out)
-        self.assertTrue(err.startswith(b'\nSyntax: cpplint'))
+        assert 0 == status
+        assert b'' == out
+        assert err.startswith(b'\nSyntax: cpplint')
 
-class TemporaryFolderClassSetup(object):
+class TemporaryFolderClassSetup:
     """
     Regression tests: The test starts a filetreewalker scanning for files name *.def
     Such files are expected to have as first line the argument
@@ -79,7 +86,7 @@ class TemporaryFolderClassSetup(object):
     systemerr output (two blank lines at end).
     """
 
-    @classmethod
+    @pytest.fixture(autouse=True)
     def setUpClass(cls):
         """setup tmp folder for testing with samples and custom additions by subclasses"""
         try:
@@ -93,8 +100,8 @@ class TemporaryFolderClassSetup(object):
                 pass
             raise
 
-    @classmethod
-    def tearDownClass(cls):
+        yield
+
         if (cls._root):
             # pass
             shutil.rmtree(cls._root)
@@ -117,7 +124,7 @@ class TemporaryFolderClassSetup(object):
                 if f.endswith('.def'):
                     count += 1
                     self._checkDef(os.path.join(dirpath, f))
-        self.assertEqual(count, expectedDefs)
+        assert count == expectedDefs
 
     def _checkDef(self, path):
         """runs command and compares to expected output from def file"""
@@ -145,13 +152,13 @@ class TemporaryFolderClassSetup(object):
         # command to reproduce, do not forget first two lines have special meaning
         print("\ncd " + cwd + " && " + cmd + " 2> <filename>")
         (status, out, err) = RunShellCommand(cmd, cwd)
-        self.assertEqual(expected_status, status, 'bad command status %s' % status)
+        assert expected_status, status == 'bad command status %s' % status
         prefix = 'Failed check in %s comparing to %s for command: %s' % (cwd, definition_file, cmd)
         compare('\n'.join(expected_err), err.decode('utf8'), prefix=prefix, show_whitespace=True)
         compare('\n'.join(expected_out), out.decode('utf8'), prefix=prefix, show_whitespace=True)
 
 
-class NoRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
+class TestNoRepoSignature(TemporaryFolderClassSetup):
     """runs in a temporary folder (under /tmp in linux) without any .git/.hg/.svn file"""
 
     def get_extra_command_args(self, cwd):
@@ -181,7 +188,7 @@ class NoRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
     def testV8Sample(self):
         self.checkAllInFolder('./samples/v8-sample', 1)
 
-class GitRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
+class GitRepoSignatureTests(TemporaryFolderClassSetup):
     """runs in a temporary folder with .git file"""
 
     @classmethod
@@ -192,7 +199,7 @@ class GitRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
     def testCodeliteSample(self):
         self.checkAllInFolder('./samples/codelite-sample', 1)
 
-class MercurialRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
+class MercurialRepoSignatureTests(TemporaryFolderClassSetup):
     """runs in a temporary folder with .hg file"""
 
     @classmethod
@@ -203,7 +210,7 @@ class MercurialRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
     def testCodeliteSample(self):
         self.checkAllInFolder('./samples/codelite-sample', 1)
 
-class SvnRepoSignatureTests(TemporaryFolderClassSetup, unittest.TestCase):
+class SvnRepoSignatureTests(TemporaryFolderClassSetup):
     """runs in a temporary folder with .svn file"""
 
     @classmethod

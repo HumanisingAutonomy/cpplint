@@ -7,6 +7,17 @@ from halint._cpplintstate import _CppLintState
 
 pytest.register_assert_rewrite("tests.base_case")
 
+@pytest.fixture
+def state():
+    # Reset state, in case a previous test didn't clear up properly
+    state = _CppLintState()
+
+    # Enable all filters, so we don't miss anything that is off by default.
+    state._DEFAULT_FILTERS = []
+    state.filters = ""
+    return state
+
+
 @pytest.fixture(autouse=True)
 def global_setUp():
     """Runs before all tests are executed.

@@ -6,6 +6,7 @@ import os
 import pytest
 
 import halint.cpplint as cpplint
+from halint import _CppLintState
 
 from .utils.error_collector import ErrorCollector
 
@@ -38,7 +39,7 @@ class CpplintTestBase(ABC):
         return error_collector.Results()
 
     # Perform lint over multiple lines and return the error message.
-    def PerformMultiLineLint(self, code):
+    def PerformMultiLineLint(self, state, code):
         error_collector = ErrorCollector()
         lines = code.split('\n')
         cpplint.RemoveMultiLineComments('foo.h', lines, error_collector)
@@ -46,7 +47,7 @@ class CpplintTestBase(ABC):
         nesting_state = cpplint.NestingState()
         for i in range(lines.NumLines()):
             nesting_state.Update('foo.h', lines, i, error_collector)
-            cpplint.CheckStyle('foo.h', lines, i, 'h', nesting_state,
+            cpplint.CheckStyle(state, 'foo.h', lines, i, 'h', nesting_state,
                                error_collector)
             cpplint.CheckForNonStandardConstructs('foo.h', lines, i,
                                                   nesting_state, error_collector)
@@ -118,11 +119,11 @@ class CpplintTestBase(ABC):
     def TestLint(self, code, expected_message):
         assert expected_message == self.PerformSingleLineLint(code)
 
-    def TestMultiLineLint(self, code, expected_message):
-        assert expected_message == self.PerformMultiLineLint(code)
+    def TestMultiLineLint(self, state: _CppLintState, code, expected_message):
+        assert expected_message == self.PerformMultiLineLint(state, code)
 
     def TestMultiLineLintRE(self, code, expected_message_re):
-        message = self.PerformMultiLineLint(code)
+        message = self.PerformMultiLineLint(cpplint._cpplint_state, code)
         if not re.search(expected_message_re, message):
             self.fail('Message was:\n' + message + 'Expected match to "' +
                       expected_message_re + '"')

@@ -63,7 +63,14 @@ from .file_info import FileInfo, _IsExtension
 from .function_state import _FunctionState
 from .regex import Match, Search, ReplaceAll
 from .nesting_state import NestingState
-from .block_info import _ClassInfo, _NamespaceInfo
+from .block_info import (
+    _ClassInfo,
+    _NamespaceInfo,
+    IsBlankLine,
+    CloseExpression,
+    GetLineWidth,
+    GetPreviousNonBlankLine
+)
 
 # We categorize each error message we print.  Here are the categories.
 # We want an explicit list so we can list them all in cpplint --filter=.
@@ -848,49 +855,6 @@ def FindEndOfExpressionInLine(line, startpos, stack):
     return (-1, stack)
 
 
-def CloseExpression(clean_lines, linenum, pos):
-    """If input points to ( or { or [ or <, finds the position that closes it.
-
-    If lines[linenum][pos] points to a '(' or '{' or '[' or '<', finds the
-    linenum/pos that correspond to the closing of the expression.
-
-    TODO(unknown): cpplint spends a fair bit of time matching parentheses.
-    Ideally we would want to index all opening and closing parentheses once
-    and have CloseExpression be just a simple lookup, but due to preprocessor
-    tricks, this is not so easy.
-
-    Args:
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      pos: A position on the line.
-
-    Returns:
-      A tuple (line, linenum, pos) pointer *past* the closing brace, or
-      (line, len(lines), -1) if we never find a close.  Note we ignore
-      strings and comments when matching; and the line we return is the
-      'cleansed' line at linenum.
-    """
-
-    line = clean_lines.elided[linenum]
-    if (line[pos] not in '({[<') or Match(r'<[<=]', line[pos:]):
-        return (line, clean_lines.NumLines(), -1)
-
-    # Check first line
-    (end_pos, stack) = FindEndOfExpressionInLine(line, pos, [])
-    if end_pos > -1:
-        return (line, linenum, end_pos)
-
-    # Continue scanning forward
-    while stack and linenum < clean_lines.NumLines() - 1:
-        linenum += 1
-        line = clean_lines.elided[linenum]
-        (end_pos, stack) = FindEndOfExpressionInLine(line, 0, stack)
-        if end_pos > -1:
-            return (line, linenum, end_pos)
-
-    # Did not find end of expression before end of file, give up
-    return (line, clean_lines.NumLines(), -1)
-
 
 def FindStartOfExpressionInLine(line, endpos, stack):
     """Find position at the matching start of current expression.
@@ -1316,43 +1280,6 @@ def CheckForNewlineAtEOF(filename, lines, error):
               'Could not find a newline character at the end of the file.')
 
 
-def CheckForMultilineCommentsAndStrings(filename, clean_lines, linenum, error):
-    """Logs an error if we see /* ... */ or "..." that extend past one line.
-
-    /* ... */ comments are legit inside macros, for one line.
-    Otherwise, we prefer // comments, so it's ok to warn about the
-    other.  Likewise, it's ok for strings to extend across multiple
-    lines, as int as a line continuation character (backslash)
-    terminates each line. Although not currently prohibited by the C++
-    style guide, it's ugly and unnecessary. We don't do well with either
-    in this lint program, so we warn about both.
-
-    Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
-    """
-    line = clean_lines.elided[linenum]
-
-    # Remove all \\ (escaped backslashes) from the line. They are OK, and the
-    # second (escaped) slash may trigger later \" detection erroneously.
-    line = line.replace('\\\\', '')
-
-    if line.count('/*') > line.count('*/'):
-        error(filename, linenum, 'readability/multiline_comment', 5,
-              'Complex multi-line /*...*/-style comment found. '
-              'Lint may give bogus warnings.  '
-              'Consider replacing these with //-style comments, '
-              'with #if 0...#endif, '
-              'or with more clearly structured multi-line comments.')
-
-    if (line.count('"') - line.count('\\"')) % 2:
-        error(filename, linenum, 'readability/multiline_string', 5,
-              'Multi-line string ("...") found.  This lint script doesn\'t '
-              'do well with such strings, and may give bogus warnings.  '
-              'Use C++11 raw strings or concatenation instead.')
-
 
 # (non-threadsafe name, thread-safe alternative, validation pattern)
 #
@@ -1711,22 +1638,12 @@ def CheckSpacingForFunctionCall(filename, clean_lines, linenum, error):
                 error(filename, linenum, 'whitespace/parens', 2,
                       'Extra space before )')
 
-
-def IsBlankLine(line):
-    """Returns true if the given line is blank.
-
-    We consider a line to be blank if the line is empty or consists of
-    only white spaces.
-
-    Args:
-      line: A line of a string.
-
-    Returns:
-      True, if the given line is blank.
-    """
-    return not line or line.isspace()
-
-from .check_lines import ParseNolintSuppressions, CheckForNamespaceIndentation
+from .check_lines import (
+    ParseNolintSuppressions,
+    CheckForNamespaceIndentation,
+    CheckForFunctionLengths,
+    CheckForMultilineCommentsAndStrings
+)
 
 def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line,
                 include_state, function_state, nesting_state, error,
@@ -1755,9 +1672,9 @@ def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line
     CheckForNamespaceIndentation(filename, nesting_state, clean_lines, line,
                                  error)
     if nesting_state.InAsmBlock(): return
-    CheckForFunctionLengths(_cpplint_state, filename, clean_lines, line, function_state, error)
+    CheckForFunctionLengths(state, filename, clean_lines, line, function_state, error)
     CheckForMultilineCommentsAndStrings(filename, clean_lines, line, error)
-    CheckStyle(filename, clean_lines, line, file_extension, nesting_state, error)
+    CheckStyle(state, filename, clean_lines, line, file_extension, nesting_state, error)
     CheckLanguage(filename, clean_lines, line, file_extension, include_state,
                   nesting_state, error)
     CheckForNonConstReference(filename, clean_lines, line, nesting_state, error)
@@ -1772,74 +1689,6 @@ def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line
     if extra_check_functions:
         for check_fn in extra_check_functions:
             check_fn(filename, clean_lines, line, error)
-
-
-def CheckForFunctionLengths(state: _CppLintState, filename, clean_lines, linenum,
-                            function_state, error):
-    """Reports for int function bodies.
-
-    For an overview why this is done, see:
-    https://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Write_Short_Functions
-
-    Uses a simplistic algorithm assuming other style guidelines
-    (especially spacing) are followed.
-    Only checks unindented functions, so class members are unchecked.
-    Trivial bodies are unchecked, so constructors with huge initializer lists
-    may be missed.
-    Blank/comment lines are not counted so as to avoid encouraging the removal
-    of vertical space and comments just to get through a lint check.
-    NOLINT *on the last line of a function* disables this check.
-
-    Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      function_state: Current function name and lines in body so far.
-      error: The function to call with any errors found.
-    """
-    lines = clean_lines.lines
-    line = lines[linenum]
-    joined_line = ''
-
-    starting_func = False
-    regexp = r'(\w(\w|::|\*|\&|\s)*)\('  # decls * & space::name( ...
-    match_result = Match(regexp, line)
-    if match_result:
-        # If the name is all caps and underscores, figure it's a macro and
-        # ignore it, unless it's TEST or TEST_F.
-        function_name = match_result.group(1).split()[-1]
-        if function_name == 'TEST' or function_name == 'TEST_F' or (
-            not Match(r'[A-Z_]+$', function_name)):
-            starting_func = True
-
-    if starting_func:
-        body_found = False
-        for start_linenum in range(linenum, clean_lines.NumLines()):
-            start_line = lines[start_linenum]
-            joined_line += ' ' + start_line.lstrip()
-            if Search(r'(;|})', start_line):  # Declarations and trivial functions
-                body_found = True
-                break                              # ... ignore
-            if Search(r'{', start_line):
-                body_found = True
-                function = Search(r'((\w|:)*)\(', line).group(1)
-                if Match(r'TEST', function):    # Handle TEST... macros
-                    parameter_regexp = Search(r'(\(.*\))', joined_line)
-                    if parameter_regexp:             # Ignore bad syntax
-                        function += parameter_regexp.group(1)
-                else:
-                    function += '()'
-                function_state.Begin(function)
-                break
-        if not body_found:
-            # No body for the function (or evidence of a non-function) was found.
-            error(filename, linenum, 'readability/fn_size', 5,
-                  'Lint failed to find start of function body.')
-    elif Match(r'^\}\s*$', line):  # function end
-        function_state.Check(state, error, filename, linenum)
-        function_state.End()
-    elif not Match(r'^\s*$', line):
-        function_state.Count()  # Count non-blank/non-comment lines.
 
 
 _RE_PATTERN_TODO = re.compile(r'^//(\s*)TODO(\(.+?\))?:?(\s|$)?')
@@ -2441,146 +2290,6 @@ def CheckSectionSpacing(filename, clean_lines, class_info, linenum, error):
                       '"%s:" should be preceded by a blank line' % matched.group(1))
 
 
-def GetPreviousNonBlankLine(clean_lines, linenum):
-    """Return the most recent non-blank line and its line number.
-
-    Args:
-      clean_lines: A CleansedLines instance containing the file contents.
-      linenum: The number of the line to check.
-
-    Returns:
-      A tuple with two elements.  The first element is the contents of the last
-      non-blank line before the current line, or the empty string if this is the
-      first non-blank line.  The second is the line number of that line, or -1
-      if this is the first non-blank line.
-    """
-
-    prevlinenum = linenum - 1
-    while prevlinenum >= 0:
-        prevline = clean_lines.elided[prevlinenum]
-        if not IsBlankLine(prevline):     # if not a blank line...
-            return (prevline, prevlinenum)
-        prevlinenum -= 1
-    return ('', -1)
-
-
-def CheckBraces(filename, clean_lines, linenum, error):
-    """Looks for misplaced braces (e.g. at the end of line).
-
-    Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
-    """
-
-    line = clean_lines.elided[linenum]        # get rid of comments and strings
-
-    if Match(r'\s*{\s*$', line):
-        # We allow an open brace to start a line in the case where someone is using
-        # braces in a block to explicitly create a new scope, which is commonly used
-        # to control the lifetime of stack-allocated variables.  Braces are also
-        # used for brace initializers inside function calls.  We don't detect this
-        # perfectly: we just don't complain if the last non-whitespace character on
-        # the previous non-blank line is ',', ';', ':', '(', '{', or '}', or if the
-        # previous line starts a preprocessor block. We also allow a brace on the
-        # following line if it is part of an array initialization and would not fit
-        # within the 80 character limit of the preceding line.
-        prevline = GetPreviousNonBlankLine(clean_lines, linenum)[0]
-        if (not Search(r'[,;:}{(]\s*$', prevline) and
-            not Match(r'\s*#', prevline) and
-            not (GetLineWidth(prevline) > _cpplint_state._line_length - 2 and '[]' in prevline)):
-            error(filename, linenum, 'whitespace/braces', 4,
-                  '{ should almost always be at the end of the previous line')
-
-    # An else clause should be on the same line as the preceding closing brace.
-    if Match(r'\s*else\b\s*(?:if\b|\{|$)', line):
-        prevline = GetPreviousNonBlankLine(clean_lines, linenum)[0]
-        if Match(r'\s*}\s*$', prevline):
-            error(filename, linenum, 'whitespace/newline', 4,
-                  'An else should appear on the same line as the preceding }')
-
-    # If braces come on one side of an else, they should be on both.
-    # However, we have to worry about "else if" that spans multiple lines!
-    if Search(r'else if\s*\(', line):       # could be multi-line if
-        brace_on_left = bool(Search(r'}\s*else if\s*\(', line))
-        # find the ( after the if
-        pos = line.find('else if')
-        pos = line.find('(', pos)
-        if pos > 0:
-            (endline, _, endpos) = CloseExpression(clean_lines, linenum, pos)
-            brace_on_right = endline[endpos:].find('{') != -1
-            if brace_on_left != brace_on_right:    # must be brace after if
-                error(filename, linenum, 'readability/braces', 5,
-                      'If an else has a brace on one side, it should have it on both')
-    elif Search(r'}\s*else[^{]*$', line) or Match(r'[^}]*else\s*{', line):
-        error(filename, linenum, 'readability/braces', 5,
-              'If an else has a brace on one side, it should have it on both')
-
-    # Likewise, an else should never have the else clause on the same line
-    if Search(r'\belse [^\s{]', line) and not Search(r'\belse if\b', line):
-        error(filename, linenum, 'whitespace/newline', 4,
-              'Else clause should never be on same line as else (use 2 lines)')
-
-    # In the same way, a do/while should never be on one line
-    if Match(r'\s*do [^\s{]', line):
-        error(filename, linenum, 'whitespace/newline', 4,
-              'do/while clauses should not be on a single line')
-
-    # Check single-line if/else bodies. The style guide says 'curly braces are not
-    # required for single-line statements'. We additionally allow multi-line,
-    # single statements, but we reject anything with more than one semicolon in
-    # it. This means that the first semicolon after the if should be at the end of
-    # its line, and the line after that should have an indent level equal to or
-    # lower than the if. We also check for ambiguous if/else nesting without
-    # braces.
-    if_else_match = Search(r'\b(if\s*(|constexpr)\s*\(|else\b)', line)
-    if if_else_match and not Match(r'\s*#', line):
-        if_indent = GetIndentLevel(line)
-        endline, endlinenum, endpos = line, linenum, if_else_match.end()
-        if_match = Search(r'\bif\s*(|constexpr)\s*\(', line)
-        if if_match:
-            # This could be a multiline if condition, so find the end first.
-            pos = if_match.end() - 1
-            (endline, endlinenum, endpos) = CloseExpression(clean_lines, linenum, pos)
-        # Check for an opening brace, either directly after the if or on the next
-        # line. If found, this isn't a single-statement conditional.
-        if (not Match(r'\s*{', endline[endpos:])
-            and not (Match(r'\s*$', endline[endpos:])
-                     and endlinenum < (len(clean_lines.elided) - 1)
-                     and Match(r'\s*{', clean_lines.elided[endlinenum + 1]))):
-            while (endlinenum < len(clean_lines.elided)
-                   and ';' not in clean_lines.elided[endlinenum][endpos:]):
-                endlinenum += 1
-                endpos = 0
-            if endlinenum < len(clean_lines.elided):
-                endline = clean_lines.elided[endlinenum]
-                # We allow a mix of whitespace and closing braces (e.g. for one-liner
-                # methods) and a single \ after the semicolon (for macros)
-                endpos = endline.find(';')
-                if not Match(r';[\s}]*(\\?)$', endline[endpos:]):
-                    # Semicolon isn't the last character, there's something trailing.
-                    # Output a warning if the semicolon is not contained inside
-                    # a lambda expression.
-                    if not Match(r'^[^{};]*\[[^\[\]]*\][^{}]*\{[^{}]*\}\s*\)*[;,]\s*$',
-                                 endline):
-                        error(filename, linenum, 'readability/braces', 4,
-                              'If/else bodies with multiple statements require braces')
-                elif endlinenum < len(clean_lines.elided) - 1:
-                    # Make sure the next line is dedented
-                    next_line = clean_lines.elided[endlinenum + 1]
-                    next_indent = GetIndentLevel(next_line)
-                    # With ambiguous nested if statements, this will error out on the
-                    # if that *doesn't* match the else, regardless of whether it's the
-                    # inner one or outer one.
-                    if (if_match and Match(r'\s*else\b', next_line)
-                        and next_indent != if_indent):
-                        error(filename, linenum, 'readability/braces', 4,
-                              'Else clause should be indented at the same level as if. '
-                              'Ambiguous nested if/else chains require braces.')
-                    elif next_indent > if_indent:
-                        error(filename, linenum, 'readability/braces', 4,
-                              'If/else bodies with multiple statements require braces')
 
 
 def CheckTrailingSemicolon(filename, clean_lines, linenum, error):
@@ -3006,40 +2715,11 @@ def CheckAltTokens(filename, clean_lines, linenum, error):
               'Use operator %s instead of %s' % (
                   _ALT_TOKEN_REPLACEMENT[match.group(1)], match.group(1)))
 
+from .check_style import (
+    CheckBraces
+)
 
-def GetLineWidth(line):
-    """Determines the width of the line in column positions.
-
-    Args:
-      line: A string, which may be a str string.
-
-    Returns:
-      The width of the line in column positions, accounting for str
-      combining characters and wide characters.
-    """
-    if isinstance(line, str):
-        width = 0
-        for uc in unicodedata.normalize('NFC', line):
-            if unicodedata.east_asian_width(uc) in ('W', 'F'):
-                width += 2
-            elif not unicodedata.combining(uc):
-                # Issue 337
-                # https://mail.python.org/pipermail/python-list/2012-August/628809.html
-                if (sys.version_info.major, sys.version_info.minor) <= (3, 2):
-                    # https://github.com/python/cpython/blob/2.7/Include/strobject.h#L81
-                    is_wide_build = sysconfig.get_config_var("Py_str_SIZE") >= 4
-                    # https://github.com/python/cpython/blob/2.7/Objects/strobject.c#L564
-                    is_low_surrogate = 0xDC00 <= ord(uc) <= 0xDFFF
-                    if not is_wide_build and is_low_surrogate:
-                        width -= 1
-
-                width += 1
-        return width
-    else:
-        return len(line)
-
-
-def CheckStyle(filename, clean_lines, linenum, file_extension, nesting_state,
+def CheckStyle(state: _CppLintState, filename, clean_lines, linenum, file_extension, nesting_state,
                error):
     """Checks rules from the 'C++ style rules' section of cppguide.html.
 
@@ -3149,7 +2829,7 @@ def CheckStyle(filename, clean_lines, linenum, file_extension, nesting_state,
               'More than one command on the same line')
 
     # Some more style checks
-    CheckBraces(filename, clean_lines, linenum, error)
+    CheckBraces(state, filename, clean_lines, linenum, error)
     CheckTrailingSemicolon(filename, clean_lines, linenum, error)
     CheckEmptyBlockBody(filename, clean_lines, linenum, error)
     CheckSpacing(filename, clean_lines, linenum, nesting_state, error)

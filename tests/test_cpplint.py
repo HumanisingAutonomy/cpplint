@@ -10,6 +10,7 @@ import tempfile
 import halint.cpplint as cpplint
 import halint.cli as cli
 from halint.check_lines import CheckForNamespaceIndentation
+from halint import _CppLintState
 
 from .base_case import CpplintTestBase
 from .utils.error_collector import ErrorCollector
@@ -126,7 +127,7 @@ class TestCpplint(CpplintTestBase):
             '  [whitespace/end_of_line] [4]')
 
     # Test line length check.
-    def testLineLengthCheck(self):
+    def testLineLengthCheck(self, state: _CppLintState):
         self.TestLint(
             '// Hello',
             '')
@@ -168,19 +169,19 @@ class TestCpplint(CpplintTestBase):
             '// $Id: g' + ('o' * 80) + 'gle.cc#1',
             'Lines should be <= 80 characters long'
             '  [whitespace/line_length] [2]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'static const char kCStr[] = "g' + ('o' * 50) + 'gle";\n',
             'Lines should be <= 80 characters long'
             '  [whitespace/line_length] [2]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'static const char kRawStr[] = R"(g' + ('o' * 50) + 'gle)";\n',
             '')  # no warning because raw string content is elided
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'static const char kMultiLineRawStr[] = R"(\n'
             'g' + ('o' * 80) + 'gle\n'
             ')";',
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'static const char kL' + ('o' * 50) + 'ngIdentifier[] = R"()";\n',
             'Lines should be <= 80 characters long'
             '  [whitespace/line_length] [2]')
@@ -322,7 +323,7 @@ class TestCpplint(CpplintTestBase):
             '  [runtime/int] [4]')
 
     # Test C-style cast cases.
-    def testCStyleCast(self):
+    def testCStyleCast(self, state):
         self.TestLint(
             'int a = (int)1.0;',
             'Using C-style cast.  Use static_cast<int>(...) instead'
@@ -385,7 +386,7 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('uint_fast16_t{4096} * 1000 * 1000', '')
 
         # Brace initializer with templated type
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         template <typename Type1,
                   typename Type2>
@@ -394,7 +395,7 @@ class TestCpplint(CpplintTestBase):
           variable &= ~Type1{0} - 1;
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         template <typename Type>
         class Class {
@@ -403,7 +404,7 @@ class TestCpplint(CpplintTestBase):
           }
         };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         template <typename Type>
         class Class {
@@ -412,7 +413,7 @@ class TestCpplint(CpplintTestBase):
           }
         };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         namespace {
         template <typename Type>
@@ -942,8 +943,8 @@ class TestCpplint(CpplintTestBase):
         assert 'f(a, b, c);', cpplint.CleanseComments('f(a, /**/b == /**/c);')
         assert 'f(a, b, c);', cpplint.CleanseComments('f(a, /**/b/**/ == c);')
 
-    def testRawStrings(self):
-        self.TestMultiLineLint(
+    def testRawStrings(self, state):
+        self.TestMultiLineLint(state,
             """
         int main() {
           struct A {
@@ -951,14 +952,14 @@ class TestCpplint(CpplintTestBase):
           };
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         template <class T, class D = default_delete<T>> class unique_ptr {
          public:
             unique_ptr(unique_ptr&& u) noexcept;
         };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         void Func() {
           static const char kString[] = R"(
@@ -967,7 +968,7 @@ class TestCpplint(CpplintTestBase):
           )";
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         void Func() {
           string s = R"TrueDelimiter(
@@ -976,13 +977,13 @@ class TestCpplint(CpplintTestBase):
               )TrueDelimiter";
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         void Func() {
           char char kString[] = R"(  ";" )";
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         static const char kRawString[] = R"(
           \tstatic const int kLineWithTab = 1;
@@ -1001,7 +1002,7 @@ class TestCpplint(CpplintTestBase):
 
         )";""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         void Func() {
           string s = StrCat(R"TrueDelimiter(
@@ -1013,7 +1014,7 @@ class TestCpplint(CpplintTestBase):
               )TrueDelimiter2");
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         static SomeStruct kData = {
             {0, R"(line1
@@ -1022,9 +1023,9 @@ class TestCpplint(CpplintTestBase):
             };""",
             '')
 
-    def testMultiLineComments(self):
+    def testMultiLineComments(self, state: _CppLintState):
         # missing explicit is bad
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             r"""int a = 0;
             /* multi-liner
             class Foo {
@@ -1032,22 +1033,22 @@ class TestCpplint(CpplintTestBase):
             }
             */ """,
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             r"""/* int a = 0; multi-liner
               static const int b = 0;""",
             'Could not find end of multi-line comment'
             '  [readability/multiline_comment] [5]')
-        self.TestMultiLineLint(r"""  /* multi-line comment""",
+        self.TestMultiLineLint(state, r"""  /* multi-line comment""",
                                'Could not find end of multi-line comment'
                                '  [readability/multiline_comment] [5]')
-        self.TestMultiLineLint(r"""  // /* comment, but not multi-line""", '')
-        self.TestMultiLineLint(r"""/**********
+        self.TestMultiLineLint(state, r"""  // /* comment, but not multi-line""", '')
+        self.TestMultiLineLint(state, r"""/**********
                                  */""", '')
-        self.TestMultiLineLint(r"""/**
+        self.TestMultiLineLint(state, r"""/**
                                  * Doxygen comment
                                  */""",
                                '')
-        self.TestMultiLineLint(r"""/*!
+        self.TestMultiLineLint(state, r"""/*!
                                  * Doxygen comment
                                  */""",
                                '')
@@ -1070,13 +1071,13 @@ class TestCpplint(CpplintTestBase):
             assert  2 == error_collector.ResultList().count(multiline_string_error_message)
 
     # Test non-explicit single-argument constructors
-    def testExplicitSingleArgumentConstructors(self):
+    def testExplicitSingleArgumentConstructors(self, state):
         old_verbose_level = cpplint._cpplint_state.verbose_level
         cpplint._cpplint_state.verbose_level = 0
 
         try:
             # missing explicit is bad
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f);
@@ -1084,7 +1085,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # missing explicit is bad, even with whitespace
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo (int f);
@@ -1093,7 +1094,7 @@ class TestCpplint(CpplintTestBase):
                  'Single-parameter constructors should be marked explicit.'
                  '  [runtime/explicit] [5]'])
             # missing explicit, with distracting comment, is still bad
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f);  // simpler than Foo(blargh, blarg)
@@ -1101,7 +1102,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # missing explicit, with qualified classname
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Qualifier::AnotherOne::Foo {
             Foo(int f);
@@ -1109,7 +1110,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # missing explicit for inline constructors is bad as well
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             inline Foo(int f);
@@ -1117,7 +1118,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # missing explicit for constexpr constructors is bad as well
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             constexpr Foo(int f);
@@ -1125,14 +1126,14 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # missing explicit for constexpr+inline constructors is bad as well
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             constexpr inline Foo(int f);
           };""",
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             inline constexpr Foo(int f);
@@ -1140,58 +1141,58 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # explicit with inline is accepted
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             inline explicit Foo(int f);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit inline Foo(int f);
           };""",
                 '')
             # explicit with constexpr is accepted
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             constexpr explicit Foo(int f);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit constexpr Foo(int f);
           };""",
                 '')
             # explicit with constexpr+inline is accepted
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             inline constexpr explicit Foo(int f);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit inline constexpr Foo(int f);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             constexpr inline explicit Foo(int f);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit constexpr inline Foo(int f);
           };""",
                 '')
             # structs are caught as well.
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           struct Foo {
             Foo(int f);
@@ -1199,7 +1200,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # Templatized classes are caught as well.
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           template<typename T> class Foo {
             Foo(int f);
@@ -1207,7 +1208,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # inline case for templatized classes.
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           template<typename T> class Foo {
             inline Foo(int f);
@@ -1215,7 +1216,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # constructors with a default argument should still be marked explicit
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f = 0);
@@ -1224,7 +1225,7 @@ class TestCpplint(CpplintTestBase):
                 '  [runtime/explicit] [5]')
             # multi-argument constructors with all but one default argument should be
             # marked explicit
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f, int g = 0);
@@ -1233,7 +1234,7 @@ class TestCpplint(CpplintTestBase):
                 '  [runtime/explicit] [5]')
             # multi-argument constructors with all default arguments should be marked
             # explicit
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f = 0, int g = 0);
@@ -1241,7 +1242,7 @@ class TestCpplint(CpplintTestBase):
                 'Constructors callable with one argument should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # explicit no-argument constructors are bad
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit Foo();
@@ -1249,7 +1250,7 @@ class TestCpplint(CpplintTestBase):
                 'Zero-parameter constructors should not be marked explicit.'
                 '  [runtime/explicit] [5]')
             # void constructors are considered no-argument
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit Foo(void);
@@ -1257,13 +1258,13 @@ class TestCpplint(CpplintTestBase):
                 'Zero-parameter constructors should not be marked explicit.'
                 '  [runtime/explicit] [5]')
             # No warning for multi-parameter constructors
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit Foo(int f, int g);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit Foo(int f, int g = 0);
@@ -1271,7 +1272,7 @@ class TestCpplint(CpplintTestBase):
                 '')
             # single-argument constructors that take a function that takes multiple
             # arguments should be explicit
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(void (*f)(int f, int g));
@@ -1280,7 +1281,7 @@ class TestCpplint(CpplintTestBase):
                 '  [runtime/explicit] [5]')
             # single-argument constructors that take a single template argument with
             # multiple parameters should be explicit
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           template <typename T, typename S>
           class Foo {
@@ -1289,7 +1290,7 @@ class TestCpplint(CpplintTestBase):
                 'Single-parameter constructors should be marked explicit.'
                 '  [runtime/explicit] [5]')
             # but copy constructors that take multiple template parameters are OK
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           template <typename T, S>
           class Foo {
@@ -1297,21 +1298,21 @@ class TestCpplint(CpplintTestBase):
           };""",
                 '')
             # proper style is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             explicit Foo(int f);
           };""",
                 '')
             # two argument constructor is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f, int b);
           };""",
                 '')
             # two argument constructor, across two lines, is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f,
@@ -1319,28 +1320,28 @@ class TestCpplint(CpplintTestBase):
           };""",
                 '')
             # non-constructor (but similar name), is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             aFoo(int f);
           };""",
                 '')
             # constructor with void argument is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(void);
           };""",
                 '')
             # single argument method is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Bar(int b);
           };""",
                 '')
             # comments should be ignored
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
           // Foo(int f);
@@ -1348,7 +1349,7 @@ class TestCpplint(CpplintTestBase):
                 '')
             # single argument function following class definition is okay
             # (okay, it's not actually valid, but we don't want a false positive)
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(int f, int b);
@@ -1356,55 +1357,55 @@ class TestCpplint(CpplintTestBase):
           Foo(int f);""",
                 '')
             # single argument function is okay
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """static Foo(int f);""",
                 '')
             # single argument copy constructor is okay.
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(const Foo&);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(volatile Foo&);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(volatile const Foo&);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(const volatile Foo&);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(Foo const&);
           };""",
                 '')
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(Foo&);
           };""",
                 '')
             # templatized copy constructor is okay.
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           template<typename T> class Foo {
             Foo(const Foo<T>&);
           };""",
                 '')
             # Special case for std::initializer_list
-            self.TestMultiLineLint(
+            self.TestMultiLineLint(state,
                 """
           class Foo {
             Foo(std::initializer_list<T> &arg) {}
@@ -1461,22 +1462,22 @@ class TestCpplint(CpplintTestBase):
         finally:
             cpplint._cpplint_state.verbose_level = old_verbose_level
 
-    def testSlashStarCommentOnSingleLine(self):
-        self.TestMultiLineLint(
+    def testSlashStarCommentOnSingleLine(self, state):
+        self.TestMultiLineLint(state,
             """/* static */ Foo(int f);""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """/*/ static */  Foo(int f);""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """/*/ static Foo(int f);""",
             'Could not find end of multi-line comment'
             '  [readability/multiline_comment] [5]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """  /*/ static Foo(int f);""",
             'Could not find end of multi-line comment'
             '  [readability/multiline_comment] [5]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """  /**/ static Foo(int f);""",
             '')
 
@@ -1805,7 +1806,7 @@ class TestCpplint(CpplintTestBase):
             assert '' == error_collector.Results()
 
     # Brace usage
-    def testBraces(self):
+    def testBraces(self, state):
         # Braces shouldn't be followed by a ; unless they're defining a struct
         # or initializing an array
         self.TestLint('int a[3] = { 1, 2, 3 };', '')
@@ -1814,16 +1815,16 @@ class TestCpplint(CpplintTestBase):
                {1, 2, 3 };""",
             '')
         # For single line, unmatched '}' with a ';' is ignored (not enough context)
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """int a[3] = { 1,
                         2,
                         3 };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """int a[2][3] = { { 1, 2 },
                          { 3, 4 } };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """int a[2][3] =
                { { 1, 2 },
                  { 3, 4 } };""",
@@ -1937,7 +1938,7 @@ class TestCpplint(CpplintTestBase):
                       'Consider using CHECK_EQ instead of CHECK(a == b)'
                       '  [readability/check] [2]')
 
-    def testCheckCheckFalsePositives(self):
+    def testCheckCheckFalsePositives(self, state):
         self.TestLint('CHECK(some_iterator == obj.end());', '')
         self.TestLint('EXPECT_TRUE(some_iterator == obj.end());', '')
         self.TestLint('EXPECT_FALSE(some_iterator == obj.end());', '')
@@ -1954,7 +1955,7 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('CHECK(42 < a && a < b);', '')
         self.TestLint('SOFT_CHECK(x > 42);', '')
 
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """_STLP_DEFINE_BINARY_OP_CHECK(==, _OP_EQUAL);
         _STLP_DEFINE_BINARY_OP_CHECK(!=, _OP_NOT_EQUAL);
         _STLP_DEFINE_BINARY_OP_CHECK(<, _OP_LESS_THAN);
@@ -2198,7 +2199,7 @@ class TestCpplint(CpplintTestBase):
             error_collector.Results())
         assert '' == error_collector.Results()
 
-    def testBraceAtBeginOfLine(self):
+    def testBraceAtBeginOfLine(self, state):
         self.TestLint('{',
                       '{ should almost always be at the end of the previous line'
                       '  [whitespace/braces] [4]')
@@ -2229,7 +2230,7 @@ class TestCpplint(CpplintTestBase):
             '{ should almost always be at the end of the previous line'
             '  [whitespace/braces] [4]')
 
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         foo(
           {
@@ -2337,7 +2338,7 @@ class TestCpplint(CpplintTestBase):
                       'ip2{new int{i2}} {}',
                       '')
 
-    def testSemiColonAfterBraces(self):
+    def testSemiColonAfterBraces(self, state):
         self.TestLint('if (cond) { func(); };',
                       'You don\'t need a ; after a }  [readability/braces] [4]')
         self.TestLint('void Func() {};',
@@ -2365,7 +2366,7 @@ class TestCpplint(CpplintTestBase):
                       'You don\'t need a ; after a }  [readability/braces] [4]')
 
         self.TestLint('file_tocs_[i] = (FileToc) {a, b, c};', '')
-        self.TestMultiLineLint('class X : public Y,\npublic Z {};', '')
+        self.TestMultiLineLint(state, 'class X : public Y,\npublic Z {};', '')
 
     def testSpacingBeforeBrackets(self):
         self.TestLint('int numbers [] = { 1, 2, 3 };',
@@ -2375,16 +2376,16 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('#define NODISCARD [[nodiscard]]', '')
         self.TestLint('void foo(int param [[maybe_unused]]);', '')
 
-    def testLambda(self):
+    def testLambda(self, state):
         self.TestLint('auto x = []() {};', '')
         self.TestLint('return []() {};', '')
-        self.TestMultiLineLint('auto x = []() {\n};\n', '')
+        self.TestMultiLineLint(state, 'auto x = []() {\n};\n', '')
         self.TestLint('int operator[](int x) {};',
                       'You don\'t need a ; after a }  [readability/braces] [4]')
 
-        self.TestMultiLineLint('auto x = [&a,\nb]() {};', '')
-        self.TestMultiLineLint('auto x = [&a,\nb]\n() {};', '')
-        self.TestMultiLineLint('auto x = [&a,\n'
+        self.TestMultiLineLint(state, 'auto x = [&a,\nb]() {};', '')
+        self.TestMultiLineLint(state, 'auto x = [&a,\nb]\n() {};', '')
+        self.TestMultiLineLint(state, 'auto x = [&a,\n'
                                '          b](\n'
                                '    int a,\n'
                                '    int b) {\n'
@@ -2396,7 +2397,7 @@ class TestCpplint(CpplintTestBase):
         # Avoid false positives with operator[]
         self.TestLint('table_to_children[&*table].push_back(dependent);', '')
 
-    def testBraceInitializerList(self):
+    def testBraceInitializerList(self, state):
         self.TestLint('MyStruct p = {1, 2};', '')
         self.TestLint('MyStruct p{1, 2};', '')
         self.TestLint('vector<int> p = {1, 2};', '')
@@ -2418,19 +2419,19 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('ItemView{has_offer() ? new Offer{offer()} : nullptr', '')
         self.TestLint('template <class T, EnableIf<::std::is_const<T>{}> = 0>', '')
 
-        self.TestMultiLineLint('std::unique_ptr<Foo> foo{\n'
+        self.TestMultiLineLint(state, 'std::unique_ptr<Foo> foo{\n'
                                '  new Foo{}\n'
                                '};\n', '')
-        self.TestMultiLineLint('std::unique_ptr<Foo> foo{\n'
+        self.TestMultiLineLint(state, 'std::unique_ptr<Foo> foo{\n'
                                '  new Foo{\n'
                                '    new Bar{}\n'
                                '  }\n'
                                '};\n', '')
-        self.TestMultiLineLint('if (true) {\n'
+        self.TestMultiLineLint(state, 'if (true) {\n'
                                '  if (false){ func(); }\n'
                                '}\n',
                                'Missing space before {  [whitespace/braces] [5]')
-        self.TestMultiLineLint('MyClass::MyClass()\n'
+        self.TestMultiLineLint(state, 'MyClass::MyClass()\n'
                                '    : initializer_{\n'
                                '          Func()} {\n'
                                '}\n', '')
@@ -2438,12 +2439,12 @@ class TestCpplint(CpplintTestBase):
                       ('o' * 41) + 'gStr[] = {\n',
                       'Lines should be <= 80 characters long'
                       '  [whitespace/line_length] [2]')
-        self.TestMultiLineLint('const pair<string, string> kCL' +
+        self.TestMultiLineLint(state, 'const pair<string, string> kCL' +
                                ('o' * 40) + 'ngStr[] =\n'
                                '    {\n'
                                '        {"gooooo", "oooogle"},\n'
                                '};\n', '')
-        self.TestMultiLineLint('const pair<string, string> kCL' +
+        self.TestMultiLineLint(state, 'const pair<string, string> kCL' +
                                ('o' * 39) + 'ngStr[] =\n'
                                '    {\n'
                                '        {"gooooo", "oooogle"},\n'
@@ -2530,7 +2531,7 @@ class TestCpplint(CpplintTestBase):
                       '  [whitespace/semicolon] [5]')
         self.TestLint('for (int i = 0; ;', '')
 
-    def testEmptyBlockBody(self):
+    def testEmptyBlockBody(self, state):
         self.TestLint('while (true);',
                       'Empty loop bodies should use {} or continue'
                       '  [whitespace/empty_loop_body] [5]')
@@ -2550,53 +2551,53 @@ class TestCpplint(CpplintTestBase):
                       '  [whitespace/empty_if_body] [4]')
         self.TestLint('if (test) func();', '')
         self.TestLint('if (test) {} else {}', '')
-        self.TestMultiLineLint("""while (true &&
+        self.TestMultiLineLint(state, """while (true &&
                                      false);""",
                                'Empty loop bodies should use {} or continue'
                                '  [whitespace/empty_loop_body] [5]')
-        self.TestMultiLineLint("""do {
+        self.TestMultiLineLint(state, """do {
                            } while (false);""",
                                '')
-        self.TestMultiLineLint("""#define MACRO \\
+        self.TestMultiLineLint(state, """#define MACRO \\
                            do { \\
                            } while (false);""",
                                '')
-        self.TestMultiLineLint("""do {
+        self.TestMultiLineLint(state, """do {
                            } while (false);  // next line gets a warning
                            while (false);""",
                                'Empty loop bodies should use {} or continue'
                                '  [whitespace/empty_loop_body] [5]')
-        self.TestMultiLineLint("""if (test) {
+        self.TestMultiLineLint(state, """if (test) {
                            }""",
                                'If statement had no body and no else clause'
                                '  [whitespace/empty_if_body] [4]')
-        self.TestMultiLineLint("""if (test,
+        self.TestMultiLineLint(state, """if (test,
                                func({})) {
                            }""",
                                'If statement had no body and no else clause'
                                '  [whitespace/empty_if_body] [4]')
-        self.TestMultiLineLint("""if (test)
+        self.TestMultiLineLint(state, """if (test)
                              func();""", '')
         self.TestLint('if (test) { hello; }', '')
         self.TestLint('if (test({})) { hello; }', '')
-        self.TestMultiLineLint("""if (test) {
+        self.TestMultiLineLint(state, """if (test) {
                              func();
                            }""", '')
-        self.TestMultiLineLint("""if (test) {
+        self.TestMultiLineLint(state, """if (test) {
                              // multiline
                              // comment
                            }""", '')
-        self.TestMultiLineLint("""if (test) {  // comment
+        self.TestMultiLineLint(state, """if (test) {  // comment
                            }""", '')
-        self.TestMultiLineLint("""if (test) {
+        self.TestMultiLineLint(state, """if (test) {
                            } else {
                            }""", '')
-        self.TestMultiLineLint("""if (func(p1,
+        self.TestMultiLineLint(state, """if (func(p1,
                                p2,
                                p3)) {
                              func();
                            }""", '')
-        self.TestMultiLineLint("""if (func({}, p1)) {
+        self.TestMultiLineLint(state, """if (func({}, p1)) {
                              func();
                            }""", '')
 
@@ -2744,7 +2745,7 @@ class TestCpplint(CpplintTestBase):
                            error_msg % 'const char Class::static_member_variable4',
                            nonconst_error_msg]
 
-    def testNoSpacesInFunctionCalls(self):
+    def testNoSpacesInFunctionCalls(self, state):
         self.TestLint('TellStory(1, 3);',
                       '')
         self.TestLint('TellStory(1, 3 );',
@@ -2752,16 +2753,16 @@ class TestCpplint(CpplintTestBase):
                       '  [whitespace/parens] [2]')
         self.TestLint('TellStory(1 /* wolf */, 3 /* pigs */);',
                       '')
-        self.TestMultiLineLint("""TellStory(1, 3
+        self.TestMultiLineLint(state, """TellStory(1, 3
                                         );""",
                                'Closing ) should be moved to the previous line'
                                '  [whitespace/parens] [2]')
-        self.TestMultiLineLint("""TellStory(Wolves(1),
+        self.TestMultiLineLint(state, """TellStory(Wolves(1),
                                         Pigs(3
                                         ));""",
                                'Closing ) should be moved to the previous line'
                                '  [whitespace/parens] [2]')
-        self.TestMultiLineLint("""TellStory(1,
+        self.TestMultiLineLint(state, """TellStory(1,
                                         3 );""",
                                'Extra space before )'
                                '  [whitespace/parens] [2]')
@@ -2796,7 +2797,7 @@ class TestCpplint(CpplintTestBase):
                       r'NormalizePath("/./../foo///bar/..//x/../..", ""));',
                       '')
 
-    def testTwoSpacesBetweenCodeAndComments(self):
+    def testTwoSpacesBetweenCodeAndComments(self, state):
         self.TestLint('} // namespace foo',
                       'At least two spaces is best between code and comments'
                       '  [whitespace/comments] [2]')
@@ -2810,20 +2811,20 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('int i = 0;   // Having three spaces is OK.', '')
         self.TestLint('// Top level comment', '')
         self.TestLint('  // Line starts with two spaces.', '')
-        self.TestMultiLineLint('void foo() {\n'
+        self.TestMultiLineLint(state, 'void foo() {\n'
                                '  { // A scope is opening.\n'
                                '    int a;', '')
-        self.TestMultiLineLint('void foo() {\n'
+        self.TestMultiLineLint(state, 'void foo() {\n'
                                '  { // A scope is opening.\n'
                                '#define A a',
                                'At least two spaces is best between code and '
                                'comments  [whitespace/comments] [2]')
-        self.TestMultiLineLint('  foo();\n'
+        self.TestMultiLineLint(state, '  foo();\n'
                                '  { // An indented scope is opening.\n'
                                '    int a;', '')
-        self.TestMultiLineLint('vector<int> my_elements = {// first\n'
+        self.TestMultiLineLint(state, 'vector<int> my_elements = {// first\n'
                                '                           1,', '')
-        self.TestMultiLineLint('vector<int> my_elements = {// my_elements is ..\n'
+        self.TestMultiLineLint(state, 'vector<int> my_elements = {// my_elements is ..\n'
                                '    1,',
                                'At least two spaces is best between code and '
                                'comments  [whitespace/comments] [2]')
@@ -3272,7 +3273,7 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('operator,(a,b)',
                       'Missing space after ,  [whitespace/comma] [3]')
 
-    def testEqualsOperatorSpacing(self):
+    def testEqualsOperatorSpacing(self, state):
         self.TestLint('int tmp= a;',
                       'Missing spaces around =  [whitespace/operators] [4]')
         self.TestLint('int tmp =a;',
@@ -3289,7 +3290,7 @@ class TestCpplint(CpplintTestBase):
                       'Missing spaces around =  [whitespace/operators] [4]')
         self.TestLint('int* tmp= *p;',
                       'Missing spaces around =  [whitespace/operators] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             self.TrimExtraIndent('''
             lookahead_services_=
               ::strings::Split(FLAGS_ls, ",", ::strings::SkipEmpty());'''),
@@ -3323,7 +3324,7 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('1024>>10', '')
         self.TestLint('Kernel<<<1, 2>>>()', '')
 
-    def testIndent(self):
+    def testIndent(self, state):
         self.TestLint('static int noindent;', '')
         self.TestLint('  int two_space_indent;', '')
         self.TestLint('    int four_space_indent;', '')
@@ -3343,7 +3344,7 @@ class TestCpplint(CpplintTestBase):
         self.TestLint('  public:      \\', '')
         self.TestLint('   private:   \\', '')
         # examples using QT signals/slots macro
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             self.TrimExtraIndent("""
             class foo {
              public slots:
@@ -3351,7 +3352,7 @@ class TestCpplint(CpplintTestBase):
              signals:
             };"""),
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             self.TrimExtraIndent("""
             class foo {
               public slots:
@@ -3359,7 +3360,7 @@ class TestCpplint(CpplintTestBase):
             };"""),
             'public slots: should be indented +1 space inside class foo'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             self.TrimExtraIndent("""
             class foo {
               signals:
@@ -3367,23 +3368,23 @@ class TestCpplint(CpplintTestBase):
             };"""),
             'signals: should be indented +1 space inside class foo'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             self.TrimExtraIndent('''
             static const char kRawString[] = R"("
              ")";'''),
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             self.TrimExtraIndent('''
             KV<Query,
                Tuple<TaxonomyId, PetacatCategoryId, double>>'''),
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             ' static const char kSingleLineRawString[] = R"(...)";',
             'Weird number of spaces at line-start.  '
             'Are you using a 2-space indent?  [whitespace/indent] [3]')
 
-    def testSectionIndent(self):
-        self.TestMultiLineLint(
+    def testSectionIndent(self, state):
+        self.TestMultiLineLint(state,
             """
         class A {
          public:  // no warning
@@ -3391,7 +3392,7 @@ class TestCpplint(CpplintTestBase):
         };""",
             'private: should be indented +1 space inside class A'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         class B {
          public:  // no warning
@@ -3402,19 +3403,19 @@ class TestCpplint(CpplintTestBase):
         };""",
             'public: should be indented +1 space inside struct C'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         struct D {
          };""",
             'Closing brace should be aligned with beginning of struct D'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
          template<typename E> class F {
         };""",
             'Closing brace should be aligned with beginning of class F'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         class G {
           Q_OBJECT
@@ -3425,7 +3426,7 @@ class TestCpplint(CpplintTestBase):
              '  [whitespace/indent] [3]',
              'signals: should be indented +1 space inside class G'
              '  [whitespace/indent] [3]'])
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         class H {
           /* comments */ class I {
@@ -3435,7 +3436,7 @@ class TestCpplint(CpplintTestBase):
         };""",
             'private: should be indented +1 space inside class I'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         class J
             : public ::K {
@@ -3444,14 +3445,14 @@ class TestCpplint(CpplintTestBase):
         };""",
             'protected: should be indented +1 space inside class J'
             '  [whitespace/indent] [3]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         class L
             : public M,
               public ::N {
         };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         template <class O,
                   class P,
@@ -3461,21 +3462,21 @@ class TestCpplint(CpplintTestBase):
         }""",
             '')
 
-    def testConditionals(self):
-        self.TestMultiLineLint(
+    def testConditionals(self, state):
+        self.TestMultiLineLint(state,
             """
         if (foo)
           goto fail;
           goto fail;""",
             'If/else bodies with multiple statements require braces'
             '  [readability/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           goto fail; goto fail;""",
             'If/else bodies with multiple statements require braces'
             '  [readability/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           foo;
@@ -3484,13 +3485,13 @@ class TestCpplint(CpplintTestBase):
           goto fail;""",
             'If/else bodies with multiple statements require braces'
             '  [readability/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo) goto fail;
           goto fail;""",
             'If/else bodies with multiple statements require braces'
             '  [readability/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if constexpr (foo) {
           goto fail;
@@ -3499,7 +3500,7 @@ class TestCpplint(CpplintTestBase):
           hello();
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           if (bar)
@@ -3508,7 +3509,7 @@ class TestCpplint(CpplintTestBase):
             qux;""",
             'Else clause should be indented at the same level as if. Ambiguous'
             ' nested if/else chains require braces.  [readability/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           if (bar)
@@ -3517,7 +3518,7 @@ class TestCpplint(CpplintTestBase):
           qux;""",
             'Else clause should be indented at the same level as if. Ambiguous'
             ' nested if/else chains require braces.  [readability/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo) {
           bar;
@@ -3526,7 +3527,7 @@ class TestCpplint(CpplintTestBase):
           qux;""",
             'If an else has a brace on one side, it should have it on both'
             '  [readability/braces] [5]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           bar;
@@ -3535,7 +3536,7 @@ class TestCpplint(CpplintTestBase):
         }""",
             'If an else has a brace on one side, it should have it on both'
             '  [readability/braces] [5]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           bar;
@@ -3544,7 +3545,7 @@ class TestCpplint(CpplintTestBase):
         }""",
             'If an else has a brace on one side, it should have it on both'
             '  [readability/braces] [5]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo) {
           bar;
@@ -3552,13 +3553,13 @@ class TestCpplint(CpplintTestBase):
           qux;""",
             'If an else has a brace on one side, it should have it on both'
             '  [readability/braces] [5]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           goto fail;
         bar;""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo
             && bar) {
@@ -3566,13 +3567,13 @@ class TestCpplint(CpplintTestBase):
           qux;
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           goto
             fail;""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           bar;
@@ -3580,7 +3581,7 @@ class TestCpplint(CpplintTestBase):
           baz;
         qux;""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         for (;;) {
           if (foo)
@@ -3589,21 +3590,21 @@ class TestCpplint(CpplintTestBase):
             baz;
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           bar;
         else if (baz)
           baz;""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
           bar;
         else
           baz;""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo) {
           bar;
@@ -3611,7 +3612,7 @@ class TestCpplint(CpplintTestBase):
           baz;
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo) {
           bar;
@@ -3621,7 +3622,7 @@ class TestCpplint(CpplintTestBase):
             '')
         # Note: this is an error for a different reason, but should not trigger the
         # single-line if error.
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo)
         {
@@ -3630,18 +3631,18 @@ class TestCpplint(CpplintTestBase):
         }""",
             '{ should almost always be at the end of the previous line'
             '  [whitespace/braces] [4]')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         if (foo) { \\
           bar; \\
           baz; \\
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         void foo() { if (bar) baz; }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         #if foo
           bar;
@@ -3650,7 +3651,7 @@ class TestCpplint(CpplintTestBase):
           qux;
         #endif""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """void F() {
           variable = [] { if (true); };
           variable =
@@ -3660,7 +3661,7 @@ class TestCpplint(CpplintTestBase):
               [] { if (true); });
         }""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         #if(A == 0)
           foo();
@@ -3668,7 +3669,7 @@ class TestCpplint(CpplintTestBase):
           bar();
         #endif""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         #if (A == 0)
           foo();
@@ -4017,29 +4018,29 @@ class TestCpplint(CpplintTestBase):
             self.TestLanguageRulesCheck('foo.' + extension, 'namespace {', '')
             self.TestLanguageRulesCheck('foo.' + extension, 'namespace foo {', '')
 
-    def testBuildClass(self):
+    def testBuildClass(self, state):
         # Test that the linter can parse to the end of class definitions,
         # and that it will report when it can't.
         # Use multi-line linter because it performs the ClassState check.
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'class Foo {',
             'Failed to find complete declaration of class Foo'
             '  [build/class] [5]')
         # Do the same for namespaces
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'namespace Foo {',
             'Failed to find complete declaration of namespace Foo'
             '  [build/namespaces] [5]')
         # Don't warn on forward declarations of various types.
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'class Foo;',
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """struct Foo*
              foo = NewFoo();""",
             '')
         # Test preprocessor.
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """#ifdef DERIVE_FROM_GOO
           struct Foo : public Goo {
         #else
@@ -4047,7 +4048,7 @@ class TestCpplint(CpplintTestBase):
         #endif
           };""",
             '')
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """
         class Foo
         #ifdef DERIVE_FROM_GOO
@@ -4058,15 +4059,15 @@ class TestCpplint(CpplintTestBase):
         };""",
             '')
         # Test incomplete class
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             'class Foo {',
             'Failed to find complete declaration of class Foo'
             '  [build/class] [5]')
 
-    def testBuildEndComment(self):
+    def testBuildEndComment(self, state):
         # The crosstool compiler we currently use will fail to compile the
         # code in this test, so we might consider removing the lint check.
-        self.TestMultiLineLint(
+        self.TestMultiLineLint(state,
             """#if 0
         #endif Not a comment""",
             'Uncommented text after #endif is non-standard.  Use a comment.'

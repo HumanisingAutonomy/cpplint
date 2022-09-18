@@ -59,6 +59,8 @@ import unicodedata
 
 from ._cpplintstate import _CppLintState
 from .include_state import _IncludeState
+from .file_info import FileInfo, _IsExtension
+from .function_state import _FunctionState
 from .regex import Match, Search, ReplaceAll
 
 # We categorize each error message we print.  Here are the categories.
@@ -163,7 +165,7 @@ _DEFAULT_KERNEL_SUPPRESSED_CATEGORIES = [
     ]
 
 # We used to check for high-bit characters, but after much discussion we
-# decided those were OK, as int as they were in UTF-8 and didn't represent
+# decided those were OK, as long as they were in UTF-8 and didn't represent
 # hard-coded international strings, which belong in a separate i18n file.
 
 # C++ headers
@@ -689,182 +691,14 @@ def IsErrorSuppressedByNolint(category, linenum):
             linenum in _cpplint_state._error_suppressions.get(None, set()))
 
 
-def _IsSourceExtension(s):
-    """File extension (excluding dot) matches a source file extension."""
-    return s in _cpplint_state.GetNonHeaderExtensions()
-
 
 _cpplint_state = _CppLintState()
 
 
 
-class _FunctionState(object):
-    """Tracks current function name and the number of lines in its body."""
-
-    _NORMAL_TRIGGER = 250  # for --v=0, 500 for --v=1, etc.
-    _TEST_TRIGGER = 400    # about 50% more than _NORMAL_TRIGGER.
-
-    def __init__(self):
-        self.in_a_function = False
-        self.lines_in_function = 0
-        self.current_function = ''
-
-    def Begin(self, function_name):
-        """Start analyzing function body.
-
-        Args:
-          function_name: The name of the function being tracked.
-        """
-        self.in_a_function = True
-        self.lines_in_function = 0
-        self.current_function = function_name
-
-    def Count(self):
-        """Count line in current function body."""
-        if self.in_a_function:
-            self.lines_in_function += 1
-
-    def Check(self, state: _CppLintState, error, filename, linenum):
-        """Report if too many lines in function body.
-
-        Args:
-          error: The function to call with any errors found.
-          filename: The name of the current file.
-          linenum: The number of the line to check.
-        """
-        if not self.in_a_function:
-            return
-
-        if Match(r'T(EST|est)', self.current_function):
-            base_trigger = self._TEST_TRIGGER
-        else:
-            base_trigger = self._NORMAL_TRIGGER
-        trigger = base_trigger * 2**state.verbose_level
-
-        if self.lines_in_function > trigger:
-            error_level = int(math.log(self.lines_in_function / base_trigger, 2))
-            # 50 => 0, 100 => 1, 200 => 2, 400 => 3, 800 => 4, 1600 => 5, ...
-            if error_level > 5:
-                error_level = 5
-            error(filename, linenum, 'readability/fn_size', error_level,
-                  'Small and focused functions are preferred:'
-                  f' {self.current_function } has {self.lines_in_function} non-comment lines'
-                  f' (error triggered by exceeding {trigger} lines).')
-
-    def End(self):
-        """Stop analyzing function body."""
-        self.in_a_function = False
-
-
 class _IncludeError(Exception):
     """Indicates a problem with the include order in a file."""
     pass
-
-
-class FileInfo(object):
-    """Provides utility functions for filenames.
-
-    FileInfo provides easy access to the components of a file's path
-    relative to the project root.
-    """
-
-    def __init__(self, filename):
-        self._filename = filename
-
-    def FullName(self):
-        """Make Windows paths like Unix."""
-        return os.path.abspath(self._filename).replace('\\', '/')
-
-    def RepositoryName(self):
-        r"""FullName after removing the local path to the repository.
-
-        If we have a real absolute path name here we can try to do something smart:
-        detecting the root of the checkout and truncating /path/to/checkout from
-        the name so that we get header guards that don't include things like
-        "C:\\Documents and Settings\\..." or "/home/username/..." in them and thus
-        people on different computers who have checked the source out to different
-        locations won't see bogus errors.
-        """
-        fullname = self.FullName()
-
-        if os.path.exists(fullname):
-            project_dir = os.path.dirname(fullname)
-
-            # If the user specified a repository path, it exists, and the file is
-            # contained in it, use the specified repository path
-            if _cpplint_state._repository:
-                repo = FileInfo(_cpplint_state._repository).FullName()
-                root_dir = project_dir
-                while os.path.exists(root_dir):
-                    # allow case insensitive compare on Windows
-                    if os.path.normcase(root_dir) == os.path.normcase(repo):
-                        return os.path.relpath(fullname, root_dir).replace('\\', '/')
-                    one_up_dir = os.path.dirname(root_dir)
-                    if one_up_dir == root_dir:
-                        break
-                    root_dir = one_up_dir
-
-            if os.path.exists(os.path.join(project_dir, ".svn")):
-                # If there's a .svn file in the current directory, we recursively look
-                # up the directory tree for the top of the SVN checkout
-                root_dir = project_dir
-                one_up_dir = os.path.dirname(root_dir)
-                while os.path.exists(os.path.join(one_up_dir, ".svn")):
-                    root_dir = os.path.dirname(root_dir)
-                    one_up_dir = os.path.dirname(one_up_dir)
-
-                prefix = os.path.commonprefix([root_dir, project_dir])
-                return fullname[len(prefix) + 1:]
-
-            # Not SVN <= 1.6? Try to find a git, hg, or svn top level directory by
-            # searching up from the current path.
-            root_dir = current_dir = os.path.dirname(fullname)
-            while current_dir != os.path.dirname(current_dir):
-                if (os.path.exists(os.path.join(current_dir, ".git")) or
-                    os.path.exists(os.path.join(current_dir, ".hg")) or
-                    os.path.exists(os.path.join(current_dir, ".svn"))):
-                    root_dir = current_dir
-                current_dir = os.path.dirname(current_dir)
-
-            if (os.path.exists(os.path.join(root_dir, ".git")) or
-                os.path.exists(os.path.join(root_dir, ".hg")) or
-                os.path.exists(os.path.join(root_dir, ".svn"))):
-                prefix = os.path.commonprefix([root_dir, project_dir])
-                return fullname[len(prefix) + 1:]
-
-        # Don't know what to do; header guard warnings may be wrong...
-        # warnings.warn("Cannot determine repository root, header guard checks may be wrong", RuntimeWarning)
-        return fullname
-
-    def Split(self):
-        """Splits the file into the directory, basename, and extension.
-
-        For 'chrome/browser/browser.cc', Split() would
-        return ('chrome/browser', 'browser', '.cc')
-
-        Returns:
-          A tuple of (directory, basename, extension).
-        """
-
-        googlename = self.RepositoryName()
-        project, rest = os.path.split(googlename)
-        return (project,) + os.path.splitext(rest)
-
-    def BaseName(self):
-        """File base name - text after the final slash, before the final period."""
-        return self.Split()[1]
-
-    def Extension(self):
-        """File extension - text following the final period, includes that period."""
-        return self.Split()[2]
-
-    def NoExtension(self):
-        """File has no source file extension."""
-        return '/'.join(self.Split()[0:2])
-
-    def IsSource(self):
-        """File has a source file extension."""
-        return _IsSourceExtension(self.Extension()[1:])
 
 
 def _ShouldPrintError(state: _CppLintState, category, confidence, linenum):
@@ -1519,12 +1353,12 @@ def GetHeaderGuardCPPVariable(filename):
     filename = filename.replace('C++', 'cpp').replace('c++', 'cpp')
 
     fileinfo = FileInfo(filename)
-    file_path_from_root = fileinfo.RepositoryName()
+    file_path_from_root = fileinfo.RepositoryName(_cpplint_state._repository)
 
     def FixupPathFromRoot():
         if _cpplint_state._root_debug:
             sys.stderr.write("\n_root fixup, _root = '%s', repository name = '%s'\n"
-                % (_cpplint_state._root, fileinfo.RepositoryName()))
+                % (_cpplint_state._root, fileinfo.RepositoryName(_cpplint_state._repository)))
 
         # Process the file path with the --root flag if it was set.
         if not _cpplint_state._root:
@@ -1692,7 +1526,7 @@ def CheckHeaderFileIncluded(filename, include_state, error):
         headerfile = basefilename + '.' + ext
         if not os.path.exists(headerfile):
             continue
-        headername = FileInfo(headerfile).RepositoryName()
+        headername = FileInfo(headerfile).RepositoryName(_cpplint_state._repository)
         first_include = None
         include_uses_unix_dir_aliases = False
         for section_list in include_state.include_list:
@@ -1705,7 +1539,7 @@ def CheckHeaderFileIncluded(filename, include_state, error):
                 if not first_include:
                     first_include = f[1]
 
-        message = '%s should include its header file %s' % (fileinfo.RepositoryName(), headername)
+        message = '%s should include its header file %s' % (fileinfo.RepositoryName(_cpplint_state._repository), headername)
         if include_uses_unix_dir_aliases:
             message += ". Relative paths like . and .. are not allowed."
 
@@ -4237,7 +4071,7 @@ def _ClassifyInclude(fileinfo, include, used_angle_brackets, include_order="defa
     # basename when we drop common extensions, and the include
     # lives in . , then it's likely to be owned by the target file.
     target_dir, target_base = (
-        os.path.split(_DropCommonSuffixes(fileinfo.RepositoryName())))
+        os.path.split(_DropCommonSuffixes(fileinfo.RepositoryName(_cpplint_state._repository))))
     include_dir, include_base = os.path.split(_DropCommonSuffixes(include))
     target_dir_pub = os.path.normpath(target_dir + '/../public')
     target_dir_pub = target_dir_pub.replace('\\', '/')
@@ -4308,7 +4142,7 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
 
         for extension in _cpplint_state.GetNonHeaderExtensions():
             if (include.endswith('.' + extension) and
-                os.path.dirname(fileinfo.RepositoryName()) != os.path.dirname(include)):
+                os.path.dirname(fileinfo.RepositoryName(_cpplint_state._repository)) != os.path.dirname(include)):
                 error(filename, linenum, 'build/include', 4,
                       'Do not include .' + extension + ' files from other packages')
                 return
@@ -4320,7 +4154,7 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
         for ext in _cpplint_state.GetHeaderExtensions():
             basefilename = filename[0:len(filename) - len(fileinfo.Extension())]
             headerfile = basefilename + '.' + ext
-            headername = FileInfo(headerfile).RepositoryName()
+            headername = FileInfo(headerfile).RepositoryName(_cpplint_state._repository)
             if headername in include or include in headername:
                 third_src_header = True
                 break
@@ -5710,7 +5544,7 @@ def ProcessFileData(filename, file_extension, lines, error,
     CheckForIncludeWhatYouUse(filename, clean_lines, include_state, error)
 
     # Check that the .cc file has included its header if it exists.
-    if _IsSourceExtension(file_extension):
+    if _IsExtension(file_extension, _cpplint_state.GetNonHeaderExtensions()):
         CheckHeaderFileIncluded(filename, include_state, error)
 
     # We check here rather than inside ProcessLine so that we see raw

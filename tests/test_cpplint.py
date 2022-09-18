@@ -4290,7 +4290,7 @@ class TestCpplint(CpplintTestBase):
                                  'cpplint_test_header.h')
         open(file_path, 'a').close()
         file_info = cpplint.FileInfo(file_path)
-        if file_info.FullName() == file_info.RepositoryName():
+        if file_info.FullName() == file_info.RepositoryName(cpplint._cpplint_state._repository):
             # When FileInfo cannot deduce the root directory of the repository,
             # FileInfo.RepositoryName returns the same value as FileInfo.FullName.
             # This can happen when this source file was obtained without .svn or

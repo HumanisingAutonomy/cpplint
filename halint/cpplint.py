@@ -1726,7 +1726,7 @@ def IsBlankLine(line):
     """
     return not line or line.isspace()
 
-from .check_lines import ParseNolintSuppressions
+from .check_lines import ParseNolintSuppressions, CheckForNamespaceIndentation
 
 def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line,
                 include_state, function_state, nesting_state, error,
@@ -1750,7 +1750,7 @@ def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line
                              arguments: filename, clean_lines, line, error
     """
     raw_lines = clean_lines.raw_lines
-    ParseNolintSuppressions(_cpplint_state, filename, raw_lines[line], line, error)
+    ParseNolintSuppressions(state, filename, raw_lines[line], line, error)
     nesting_state.Update(filename, clean_lines, line, error)
     CheckForNamespaceIndentation(filename, nesting_state, clean_lines, line,
                                  error)
@@ -1772,19 +1772,6 @@ def ProcessLine(state: _CppLintState,filename, file_extension, clean_lines, line
     if extra_check_functions:
         for check_fn in extra_check_functions:
             check_fn(filename, clean_lines, line, error)
-
-def CheckForNamespaceIndentation(filename, nesting_state, clean_lines, line,
-                                 error):
-    is_namespace_indent_item = (
-        len(nesting_state.stack) > 1 and
-        nesting_state.stack[-1].check_namespace_indentation and
-        isinstance(nesting_state.previous_stack_top, _NamespaceInfo) and
-        nesting_state.previous_stack_top == nesting_state.stack[-2])
-
-    if ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item,
-                                       clean_lines.elided, line):
-        CheckItemIndentationInNamespace(filename, clean_lines.elided,
-                                        line, error)
 
 
 def CheckForFunctionLengths(state: _CppLintState, filename, clean_lines, linenum,
@@ -4523,66 +4510,6 @@ def CheckRedundantOverrideOrFinal(filename, clean_lines, linenum, error):
 
 # Returns true if we are at a new block, and it is directly
 # inside of a namespace.
-def IsBlockInNameSpace(nesting_state, is_forward_declaration):
-    """Checks that the new block is directly in a namespace.
-
-    Args:
-      nesting_state: The _NestingState object that contains info about our state.
-      is_forward_declaration: If the class is a forward declared class.
-    Returns:
-      Whether or not the new block is directly in a namespace.
-    """
-    if is_forward_declaration:
-        return len(nesting_state.stack) >= 1 and (
-          isinstance(nesting_state.stack[-1], _NamespaceInfo))
-
-
-    return (len(nesting_state.stack) > 1 and
-            nesting_state.stack[-1].check_namespace_indentation and
-            isinstance(nesting_state.stack[-2], _NamespaceInfo))
-
-
-def ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item,
-                                    raw_lines_no_comments, linenum):
-    """This method determines if we should apply our namespace indentation check.
-
-    Args:
-      nesting_state: The current nesting state.
-      is_namespace_indent_item: If we just put a new class on the stack, True.
-        If the top of the stack is not a class, or we did not recently
-        add the class, False.
-      raw_lines_no_comments: The lines without the comments.
-      linenum: The current line number we are processing.
-
-    Returns:
-      True if we should apply our namespace indentation check. Currently, it
-      only works for classes and namespaces inside of a namespace.
-    """
-
-    is_forward_declaration = IsForwardClassDeclaration(raw_lines_no_comments,
-                                                       linenum)
-
-    if not (is_namespace_indent_item or is_forward_declaration):
-        return False
-
-    # If we are in a macro, we do not want to check the namespace indentation.
-    if IsMacroDefinition(raw_lines_no_comments, linenum):
-        return False
-
-    return IsBlockInNameSpace(nesting_state, is_forward_declaration)
-
-
-# Call this method if the line is directly inside of a namespace.
-# If the line above is blank (excluding comments) or the start of
-# an inner namespace, it cannot be indented.
-def CheckItemIndentationInNamespace(filename, raw_lines_no_comments, linenum,
-                                    error):
-    line = raw_lines_no_comments[linenum]
-    if Match(r'^\s+', line):
-        error(filename, linenum, 'runtime/indentation_namespace', 4,
-              'Do not indent within a namespace')
-
-
 
 def FlagCxx11Features(filename, clean_lines, linenum, error):
     """Flag those c++11 features that we only allow in certain places.

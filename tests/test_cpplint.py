@@ -9,6 +9,7 @@ import tempfile
 
 import halint.cpplint as cpplint
 import halint.cli as cli
+from halint.check_lines import CheckForNamespaceIndentation
 
 from .base_case import CpplintTestBase
 from .utils.error_collector import ErrorCollector
@@ -23,7 +24,7 @@ class TestCpplint(CpplintTestBase):
         nesting_state = cpplint.NestingState()
         for i in range(lines.NumLines()):
             nesting_state.Update('foo.h', lines, i, error_collector)
-            cpplint.CheckForNamespaceIndentation('foo.h', nesting_state,
+            CheckForNamespaceIndentation('foo.h', nesting_state,
                                                  lines, i, error_collector)
 
         return error_collector.Results()

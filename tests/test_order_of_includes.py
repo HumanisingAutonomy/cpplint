@@ -3,6 +3,7 @@ import os
 import pytest
 
 import halint.cpplint as cpplint
+from halint.include_state import _IncludeState
 
 from .base_case import CpplintTestBase
 
@@ -17,66 +18,66 @@ class TestOrderOfIncludes(CpplintTestBase):
         os.path.abspath = lambda value: value
 
     def testCheckNextIncludeOrder_OtherThenCpp(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._OTHER_HEADER)
-        assert 'Found C++ system header after other header' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder( _IncludeState._OTHER_HEADER)
+        assert 'Found C++ system header after other header' == self.include_state.CheckNextIncludeOrder( _IncludeState._CPP_SYS_HEADER)
 
     def testCheckNextIncludeOrder_CppThenC(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
-        assert 'Found C system header after C++ system header' == self.include_state.CheckNextIncludeOrder( cpplint._C_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._CPP_SYS_HEADER)
+        assert 'Found C system header after C++ system header' == self.include_state.CheckNextIncludeOrder( _IncludeState._C_SYS_HEADER)
 
     def testCheckNextIncludeOrder_OtherSysThenC(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._OTHER_SYS_HEADER)
-        assert 'Found C system header after other system header' == self.include_state.CheckNextIncludeOrder( cpplint._C_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._OTHER_SYS_HEADER)
+        assert 'Found C system header after other system header' == self.include_state.CheckNextIncludeOrder( _IncludeState._C_SYS_HEADER)
 
     def testCheckNextIncludeOrder_OtherSysThenCpp(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._OTHER_SYS_HEADER)
-        assert 'Found C++ system header after other system header' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._OTHER_SYS_HEADER)
+        assert 'Found C++ system header after other system header' == self.include_state.CheckNextIncludeOrder( _IncludeState._CPP_SYS_HEADER)
 
     def testCheckNextIncludeOrder_LikelyThenCpp(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._LIKELY_MY_HEADER)
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._LIKELY_MY_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._CPP_SYS_HEADER)
 
     def testCheckNextIncludeOrder_PossibleThenCpp(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._POSSIBLE_MY_HEADER)
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._POSSIBLE_MY_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._CPP_SYS_HEADER)
 
     def testCheckNextIncludeOrder_CppThenLikely(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._CPP_SYS_HEADER)
         # This will eventually fail.
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._LIKELY_MY_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._LIKELY_MY_HEADER)
 
     def testCheckNextIncludeOrder_CppThenPossible(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._POSSIBLE_MY_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._POSSIBLE_MY_HEADER)
 
     def testCheckNextIncludeOrder_CppThenOtherSys(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._CPP_SYS_HEADER)
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._OTHER_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._CPP_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._OTHER_SYS_HEADER)
 
     def testCheckNextIncludeOrder_OtherSysThenPossible(self):
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._OTHER_SYS_HEADER)
-        assert '' == self.include_state.CheckNextIncludeOrder( cpplint._POSSIBLE_MY_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._OTHER_SYS_HEADER)
+        assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._POSSIBLE_MY_HEADER)
 
 
     def testClassifyInclude(self):
         file_info = cpplint.FileInfo
         classify_include = cpplint._ClassifyInclude
-        assert cpplint._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'stdio.h', True)
-        assert cpplint._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'sys/time.h', True)
-        assert cpplint._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'netipx/ipx.h', True)
-        assert cpplint._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'arpa/ftp.h', True)
-        assert cpplint._CPP_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'string', True)
-        assert cpplint._CPP_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'typeinfo', True)
-        assert cpplint._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo.h', True)
-        assert cpplint._OTHER_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo.h', True, "standardcfirst")
-        assert cpplint._OTHER_HEADER == classify_include(file_info('foo/foo.cc'), 'string', False)
-        assert cpplint._OTHER_HEADER == classify_include(file_info('foo/foo.cc'), 'boost/any.hpp', True)
-        assert cpplint._OTHER_HEADER == classify_include(file_info('foo/foo.hxx'), 'boost/any.hpp', True)
-        assert cpplint._OTHER_HEADER == classify_include(file_info('foo/foo.h++'), 'boost/any.hpp', True)
-        assert cpplint._LIKELY_MY_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo-inl.h', False)
-        assert cpplint._LIKELY_MY_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/public/foo.h', False)
-        assert cpplint._POSSIBLE_MY_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/other/public/foo.h', False)
-        assert cpplint._OTHER_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/other/public/foop.h', False)
+        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'stdio.h', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'sys/time.h', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'netipx/ipx.h', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'arpa/ftp.h', True)
+        assert _IncludeState._CPP_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'string', True)
+        assert _IncludeState._CPP_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'typeinfo', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo.h', True)
+        assert _IncludeState._OTHER_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo.h', True, "standardcfirst")
+        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.cc'), 'string', False)
+        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.cc'), 'boost/any.hpp', True)
+        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.hxx'), 'boost/any.hpp', True)
+        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.h++'), 'boost/any.hpp', True)
+        assert _IncludeState._LIKELY_MY_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo-inl.h', False)
+        assert _IncludeState._LIKELY_MY_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/public/foo.h', False)
+        assert _IncludeState._POSSIBLE_MY_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/other/public/foo.h', False)
+        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/other/public/foop.h', False)
 
     def testTryDropCommonSuffixes(self):
         cpplint._hpp_headers = set([])

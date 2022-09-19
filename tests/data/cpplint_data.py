@@ -339,6 +339,115 @@ mock_method_file_data = [
 }]
 ]
 
+raw_strings_data = [
+["""
+int main() {
+    struct A {
+        A(std::string s, A&& a);
+    };
+}""",
+''],
+["""
+template <class T, class D = default_delete<T>> class unique_ptr {
+    public:
+    unique_ptr(unique_ptr&& u) noexcept;
+};""",
+''],
+["""
+void Func() {
+    static const char kString[] = R"(
+    #endif  <- invalid preprocessor should be ignored
+    */      <- invalid comment should be ignored too
+    )";
+}""",
+''],
+["""
+void Func() {
+    string s = R"TrueDelimiter(
+        )"
+        )FalseDelimiter"
+        )TrueDelimiter";
+}""",
+''],
+["""
+void Func() {
+    char char kString[] = R"(  ";" )";
+}""",
+''],
+["""
+static const char kRawString[] = R"(
+    \tstatic const int kLineWithTab = 1;
+    static const int kLineWithTrailingWhiteSpace = 1;\x20
+
+    void WeirdNumberOfSpacesAtLineStart() {
+    string x;
+    x += StrCat("Use StrAppend instead");
+    }
+
+    void BlankLineAtEndOfBlock() {
+    // TODO incorrectly formatted
+    //Badly formatted comment
+
+    }
+
+)";""",
+''],
+["""
+void Func() {
+    string s = StrCat(R"TrueDelimiter(
+        )"
+        )FalseDelimiter"
+        )TrueDelimiter", R"TrueDelimiter2(
+        )"
+        )FalseDelimiter2"
+        )TrueDelimiter2");
+}""",
+''],
+["""
+static SomeStruct kData = {
+    {0, R"(line1
+            line2
+            )"}
+    };""",
+'']
+]
+
+multiline_comment_data = [
+        # missing explicit is bad
+[r"""int a = 0;
+/* multi-liner
+class Foo {
+Foo(int f);  // should cause a lint warning in code
+}
+*/ """,
+''],
+
+[r"""/* int a = 0; multi-liner
+static const int b = 0;""",
+['Could not find end of multi-line comment  [readability/multiline_comment] [5]',
+'Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.  [readability/multiline_comment] [5]']
+],
+
+[r"""/* multi-line comment""",
+['Could not find end of multi-line comment  [readability/multiline_comment] [5]',
+'Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.  [readability/multiline_comment] [5]']
+],
+
+[r"""// /* comment, but not multi-line""", ''],
+
+[r"""/**********
+ */""", ''],
+
+["""/**
+  * Doxygen comment
+  */""",
+''],
+
+[r"""/*!
+  * Doxygen comment
+  */""",
+''],
+]
 
 explicit_single_argument_constructors_data = [
 # missing explicit is bad

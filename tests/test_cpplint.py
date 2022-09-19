@@ -9,8 +9,15 @@ import tempfile
 
 import halint.cpplint as cpplint
 import halint.cli as cli
-from halint.check_lines import CheckForNamespaceIndentation
+from halint.check_lines import (
+    CheckForNamespaceIndentation
+)
+
 from halint import _CppLintState
+
+from halint.block_info import (
+    ReverseCloseExpression
+)
 
 from .base_case import CpplintTestBase
 from .utils.error_collector import ErrorCollector
@@ -523,115 +530,15 @@ class TestCpplint(CpplintTestBase):
         assert 'f(a, b, c);' == cpplint.CleanseComments('f(a, /**/b, /**/c);')
         assert 'f(a, b, c);' == cpplint.CleanseComments('f(a, /**/b/**/, c);')
 
-    def testRawStrings(self, state):
-        self.TestMultiLineLint(state,
-            """
-        int main() {
-          struct A {
-             A(std::string s, A&& a);
-          };
-        }""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        template <class T, class D = default_delete<T>> class unique_ptr {
-         public:
-            unique_ptr(unique_ptr&& u) noexcept;
-        };""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        void Func() {
-          static const char kString[] = R"(
-            #endif  <- invalid preprocessor should be ignored
-            */      <- invalid comment should be ignored too
-          )";
-        }""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        void Func() {
-          string s = R"TrueDelimiter(
-              )"
-              )FalseDelimiter"
-              )TrueDelimiter";
-        }""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        void Func() {
-          char char kString[] = R"(  ";" )";
-        }""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        static const char kRawString[] = R"(
-          \tstatic const int kLineWithTab = 1;
-          static const int kLineWithTrailingWhiteSpace = 1;\x20
+    from .data.cpplint_data import raw_strings_data
+    @pytest.mark.parametrize("code, expected_message", raw_strings_data)
+    def testRawStrings(self, state, code, expected_message):
+        self.TestLint(state, code, expected_message)
 
-           void WeirdNumberOfSpacesAtLineStart() {
-            string x;
-            x += StrCat("Use StrAppend instead");
-          }
-
-          void BlankLineAtEndOfBlock() {
-            // TODO incorrectly formatted
-            //Badly formatted comment
-
-          }
-
-        )";""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        void Func() {
-          string s = StrCat(R"TrueDelimiter(
-              )"
-              )FalseDelimiter"
-              )TrueDelimiter", R"TrueDelimiter2(
-              )"
-              )FalseDelimiter2"
-              )TrueDelimiter2");
-        }""",
-            '')
-        self.TestMultiLineLint(state,
-            """
-        static SomeStruct kData = {
-            {0, R"(line1
-                   line2
-                   )"}
-            };""",
-            '')
-
-    def testMultiLineComments(self, state: _CppLintState):
-        # missing explicit is bad
-        self.TestMultiLineLint(state,
-            r"""int a = 0;
-            /* multi-liner
-            class Foo {
-            Foo(int f);  // should cause a lint warning in code
-            }
-            */ """,
-            '')
-        self.TestMultiLineLint(state,
-            r"""/* int a = 0; multi-liner
-              static const int b = 0;""",
-            'Could not find end of multi-line comment'
-            '  [readability/multiline_comment] [5]')
-        self.TestMultiLineLint(state, r"""  /* multi-line comment""",
-                               'Could not find end of multi-line comment'
-                               '  [readability/multiline_comment] [5]')
-        self.TestMultiLineLint(state, r"""  // /* comment, but not multi-line""", '')
-        self.TestMultiLineLint(state, r"""/**********
-                                 */""", '')
-        self.TestMultiLineLint(state, r"""/**
-                                 * Doxygen comment
-                                 */""",
-                               '')
-        self.TestMultiLineLint(state, r"""/*!
-                                 * Doxygen comment
-                                 */""",
-                               '')
+    from .data.cpplint_data import multiline_comment_data
+    @pytest.mark.parametrize("code, expected_message", multiline_comment_data)
+    def testMultiLineComments(self, state: _CppLintState, code, expected_message):
+        self.TestLint(state, code, expected_message)
 
     def testMultilineStrings(self):
         multiline_string_error_message = (

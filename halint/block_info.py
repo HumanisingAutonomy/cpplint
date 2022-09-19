@@ -1,3 +1,5 @@
+import itertools
+import os
 import sysconfig
 import sys
 import unicodedata
@@ -6,6 +8,28 @@ import re
 from ._cpplintstate import _CppLintState
 from .categories import _ERROR_CATEGORIES
 from .regex import Match, Search
+from .file_info import FileInfo, PathSplitToList
+from .include_state import _IncludeState
+
+# Pattern for matching FileInfo.BaseName() against test file name
+_test_suffixes = ['_test', '_regtest', '_unittest']
+_TEST_FILE_SUFFIX = '(' + '|'.join(_test_suffixes) + r')$'
+
+# Matches the first component of a filename delimited by -s and _s. That is:
+#  _RE_FIRST_COMPONENT.match('foo').group(0) == 'foo'
+#  _RE_FIRST_COMPONENT.match('foo.cc').group(0) == 'foo'
+#  _RE_FIRST_COMPONENT.match('foo-bar_baz.cc').group(0) == 'foo'
+#  _RE_FIRST_COMPONENT.match('foo_bar-baz.cc').group(0) == 'foo'
+_RE_FIRST_COMPONENT = re.compile(r'^[^-_.]+')
+
+# Assertion macros.  These are defined in base/logging.h and
+# testing/base/public/gunit.h.
+_CHECK_MACROS = [
+    'DCHECK', 'CHECK',
+    'EXPECT_TRUE', 'ASSERT_TRUE',
+    'EXPECT_FALSE', 'ASSERT_FALSE',
+    ]
+
 
 # These constants define the current inline assembly state
 _NO_ASM = 0       # Outside of inline assembly block
@@ -415,6 +439,83 @@ def GetIndentLevel(line):
     else:
         return 0
 
+def GetHeaderGuardCPPVariable(state, filename):
+    """Returns the CPP variable that should be used as a header guard.
+
+    Args:
+      filename: The name of a C++ header file.
+
+    Returns:
+      The CPP variable that should be used as a header guard in the
+      named file.
+
+    """
+
+    # Restores original filename in case that cpplint is invoked from Emacs's
+    # flymake.
+    filename = re.sub(r'_flymake\.h$', '.h', filename)
+    filename = re.sub(r'/\.flymake/([^/]*)$', r'/\1', filename)
+    # Replace 'c++' with 'cpp'.
+    filename = filename.replace('C++', 'cpp').replace('c++', 'cpp')
+
+    fileinfo = FileInfo(filename)
+    file_path_from_root = fileinfo.RepositoryName(state._repository)
+
+    def FixupPathFromRoot():
+        if state._root_debug:
+            sys.stderr.write("\n_root fixup, _root = '%s', repository name = '%s'\n"
+                % (state._root, fileinfo.RepositoryName(state._repository)))
+
+        # Process the file path with the --root flag if it was set.
+        if not state._root:
+            if state._root_debug:
+                sys.stderr.write("_root unspecified\n")
+            return file_path_from_root
+
+        def StripListPrefix(lst, prefix):
+            # f(['x', 'y'], ['w, z']) -> None  (not a valid prefix)
+            if lst[:len(prefix)] != prefix:
+                return None
+            # f(['a, 'b', 'c', 'd'], ['a', 'b']) -> ['c', 'd']
+            return lst[(len(prefix)):]
+
+        # root behavior:
+        #   --root=subdir , lstrips subdir from the header guard
+        maybe_path = StripListPrefix(PathSplitToList(file_path_from_root),
+                                     PathSplitToList(state._root))
+
+        if state._root_debug:
+            sys.stderr.write(("_root lstrip (maybe_path=%s, file_path_from_root=%s," +
+                " _root=%s)\n") % (maybe_path, file_path_from_root, state._root))
+
+        if maybe_path:
+            return os.path.join(*maybe_path)
+
+        #   --root=.. , will prepend the outer directory to the header guard
+        full_path = fileinfo.FullName()
+        # adapt slashes for windows
+        root_abspath = os.path.abspath(state._root).replace('\\', '/')
+
+        maybe_path = StripListPrefix(PathSplitToList(full_path),
+                                     PathSplitToList(root_abspath))
+
+        if state._root_debug:
+            sys.stderr.write(("_root prepend (maybe_path=%s, full_path=%s, " +
+                "root_abspath=%s)\n") % (maybe_path, full_path, root_abspath))
+
+        if maybe_path:
+            return os.path.join(*maybe_path)
+
+        if state._root_debug:
+            sys.stderr.write("_root ignore, returning %s\n" % (file_path_from_root))
+
+        #   --root=FAKE_DIR is ignored
+        return file_path_from_root
+
+    file_path_from_root = FixupPathFromRoot()
+    return re.sub(r'[^a-zA-Z0-9]', '_', file_path_from_root).upper() + '_'
+
+
 def CloseExpression(clean_lines, linenum, pos):
     """If input points to ( or { or [ or <, finds the position that closes it.
 
@@ -612,6 +713,105 @@ def FindStartOfExpressionInLine(line, endpos, stack):
 
     return (-1, stack)
 
+def FindEndOfExpressionInLine(line, startpos, stack):
+    """Find the position just after the end of current parenthesized expression.
+
+    Args:
+      line: a CleansedLines line.
+      startpos: start searching at this position.
+      stack: nesting stack at startpos.
+
+    Returns:
+      On finding matching end: (index just after matching end, None)
+      On finding an unclosed expression: (-1, None)
+      Otherwise: (-1, new stack at end of this line)
+    """
+    for i in range(startpos, len(line)):
+        char = line[i]
+        if char in '([{':
+            # Found start of parenthesized expression, push to expression stack
+            stack.append(char)
+        elif char == '<':
+            # Found potential start of template argument list
+            if i > 0 and line[i - 1] == '<':
+                # Left shift operator
+                if stack and stack[-1] == '<':
+                    stack.pop()
+                    if not stack:
+                        return (-1, None)
+            elif i > 0 and Search(r'\boperator\s*$', line[0:i]):
+                # operator<, don't add to stack
+                continue
+            else:
+                # Tentative start of template argument list
+                stack.append('<')
+        elif char in ')]}':
+            # Found end of parenthesized expression.
+            #
+            # If we are currently expecting a matching '>', the pending '<'
+            # must have been an operator.  Remove them from expression stack.
+            while stack and stack[-1] == '<':
+                stack.pop()
+            if not stack:
+                return (-1, None)
+            if ((stack[-1] == '(' and char == ')') or
+                (stack[-1] == '[' and char == ']') or
+                (stack[-1] == '{' and char == '}')):
+                stack.pop()
+                if not stack:
+                    return (i + 1, None)
+            else:
+                # Mismatched parentheses
+                return (-1, None)
+        elif char == '>':
+            # Found potential end of template argument list.
+
+            # Ignore "->" and operator functions
+            if (i > 0 and
+                (line[i - 1] == '-' or Search(r'\boperator\s*$', line[0:i - 1]))):
+                continue
+
+            # Pop the stack if there is a matching '<'.  Otherwise, ignore
+            # this '>' since it must be an operator.
+            if stack:
+                if stack[-1] == '<':
+                    stack.pop()
+                    if not stack:
+                        return (i + 1, None)
+        elif char == ';':
+            # Found something that look like end of statements.  If we are currently
+            # expecting a '>', the matching '<' must have been an operator, since
+            # template argument list should not contain statements.
+            while stack and stack[-1] == '<':
+                stack.pop()
+            if not stack:
+                return (-1, None)
+
+    # Did not find end of expression or unbalanced parentheses on this line
+    return (-1, stack)
+
+def FindCheckMacro(line):
+    """Find a replaceable CHECK-like macro.
+
+    Args:
+      line: line to search on.
+    Returns:
+      (macro name, start position), or (None, -1) if no replaceable
+      macro is found.
+    """
+    for macro in _CHECK_MACROS:
+        i = line.find(macro)
+        if i >= 0:
+            # Find opening parenthesis.  Do a regular expression match here
+            # to make sure that we are matching the expected CHECK macro, as
+            # opposed to some other macro that happens to contain the CHECK
+            # substring.
+            matched = Match(r'^(.*\b' + macro + r'\s*)\(', line)
+            if not matched:
+                continue
+            return (macro, len(matched.group(1)))
+    return (None, -1)
+
 def IsMacroDefinition(clean_lines, linenum):
     if Search(r'^#define', clean_lines[linenum]):
         return True
@@ -742,6 +942,82 @@ def GetPreviousNonBlankLine(clean_lines, linenum):
         prevlinenum -= 1
     return ('', -1)
 
+def _IsType(clean_lines, nesting_state, expr):
+    """Check if expression looks like a type name, returns true if so.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      nesting_state: A NestingState instance which maintains information about
+                     the current stack of nested blocks being parsed.
+      expr: The expression to check.
+    Returns:
+      True, if token looks like a type.
+    """
+    # Type names
+    _TYPES = re.compile(
+        r'^(?:'
+        # [dcl.type.simple]
+        r'(char(16_t|32_t)?)|wchar_t|'
+        r'bool|short|int|int|signed|unsigned|float|double|'
+        # [support.types]
+        r'(ptrdiff_t|size_t|max_align_t|nullptr_t)|'
+        # [cstdint.syn]
+        r'(u?int(_fast|_least)?(8|16|32|64)_t)|'
+        r'(u?int(max|ptr)_t)|'
+        r')$')
+
+    # Keep only the last token in the expression
+    last_word = Match(r'^.*(\b\S+)$', expr)
+    if last_word:
+        token = last_word.group(1)
+    else:
+        token = expr
+
+    # Match native types and stdint types
+    if _TYPES.match(token):
+        return True
+
+    # Try a bit harder to match templated types.  Walk up the nesting
+    # stack until we find something that resembles a typename
+    # declaration for what we are looking for.
+    typename_pattern = (r'\b(?:typename|class|struct)\s+' + re.escape(token) +
+                        r'\b')
+    block_index = len(nesting_state.stack) - 1
+    while block_index >= 0:
+        if isinstance(nesting_state.stack[block_index], _NamespaceInfo):
+            return False
+
+        # Found where the opening brace is.  We want to scan from this
+        # line up to the beginning of the function, minus a few lines.
+        #   template <typename Type1,  // stop scanning here
+        #             ...>
+        #   class C
+        #     : public ... {  // start scanning here
+        last_line = nesting_state.stack[block_index].starting_linenum
+
+        next_block_start = 0
+        if block_index > 0:
+            next_block_start = nesting_state.stack[block_index - 1].starting_linenum
+        first_line = last_line
+        while first_line >= next_block_start:
+            if clean_lines.elided[first_line].find('template') >= 0:
+                break
+            first_line -= 1
+        if first_line < next_block_start:
+            # Didn't find any "template" keyword before reaching the next block,
+            # there are probably no template things to check for this block
+            block_index -= 1
+            continue
+
+        # Look for typename in the specified range
+        for i in range(first_line, last_line + 1, 1):
+            if Search(typename_pattern, clean_lines.elided[i]):
+                return True
+        block_index -= 1
+
+    return False
+
+
 def IsBlankLine(line):
     """Returns true if the given line is blank.
 
@@ -866,3 +1142,436 @@ def ReverseCloseExpression(clean_lines, linenum, pos):
 
     # Did not find start of expression before beginning of file, give up
     return (line, 0, -1)
+
+# C++ headers
+_CPP_HEADERS = frozenset([
+    # Legacy
+    'algobase.h',
+    'algo.h',
+    'alloc.h',
+    'builtinbuf.h',
+    'bvector.h',
+    'complex.h',
+    'defalloc.h',
+    'deque.h',
+    'editbuf.h',
+    'fstream.h',
+    'function.h',
+    'hash_map',
+    'hash_map.h',
+    'hash_set',
+    'hash_set.h',
+    'hashtable.h',
+    'heap.h',
+    'indstream.h',
+    'iomanip.h',
+    'iostream.h',
+    'istream.h',
+    'iterator.h',
+    'list.h',
+    'map.h',
+    'multimap.h',
+    'multiset.h',
+    'ostream.h',
+    'pair.h',
+    'parsestream.h',
+    'pfstream.h',
+    'procbuf.h',
+    'pthread_alloc',
+    'pthread_alloc.h',
+    'rope',
+    'rope.h',
+    'ropeimpl.h',
+    'set.h',
+    'slist',
+    'slist.h',
+    'stack.h',
+    'stdiostream.h',
+    'stl_alloc.h',
+    'stl_relops.h',
+    'streambuf.h',
+    'stream.h',
+    'strfile.h',
+    'strstream.h',
+    'tempbuf.h',
+    'tree.h',
+    'type_traits.h',
+    'vector.h',
+    # 17.6.1.2 C++ library headers
+    'algorithm',
+    'array',
+    'atomic',
+    'bitset',
+    'chrono',
+    'codecvt',
+    'complex',
+    'condition_variable',
+    'deque',
+    'exception',
+    'forward_list',
+    'fstream',
+    'functional',
+    'future',
+    'initializer_list',
+    'iomanip',
+    'ios',
+    'iosfwd',
+    'iostream',
+    'istream',
+    'iterator',
+    'limits',
+    'list',
+    'locale',
+    'map',
+    'memory',
+    'mutex',
+    'new',
+    'numeric',
+    'ostream',
+    'queue',
+    'random',
+    'ratio',
+    'regex',
+    'scoped_allocator',
+    'set',
+    'sstream',
+    'stack',
+    'stdexcept',
+    'streambuf',
+    'string',
+    'strstream',
+    'system_error',
+    'thread',
+    'tuple',
+    'typeindex',
+    'typeinfo',
+    'type_traits',
+    'unordered_map',
+    'unordered_set',
+    'utility',
+    'valarray',
+    'vector',
+    # 17.6.1.2 C++14 headers
+    'shared_mutex',
+    # 17.6.1.2 C++17 headers
+    'any',
+    'charconv',
+    'codecvt',
+    'execution',
+    'filesystem',
+    'memory_resource',
+    'optional',
+    'string_view',
+    'variant',
+    # 17.6.1.2 C++ headers for C library facilities
+    'cassert',
+    'ccomplex',
+    'cctype',
+    'cerrno',
+    'cfenv',
+    'cfloat',
+    'cinttypes',
+    'ciso646',
+    'climits',
+    'clocale',
+    'cmath',
+    'csetjmp',
+    'csignal',
+    'cstdalign',
+    'cstdarg',
+    'cstdbool',
+    'cstddef',
+    'cstdint',
+    'cstdio',
+    'cstdlib',
+    'cstring',
+    'ctgmath',
+    'ctime',
+    'cuchar',
+    'cwchar',
+    'cwctype',
+    ])
+
+# C headers
+_C_HEADERS = frozenset([
+    # System C headers
+    'assert.h',
+    'complex.h',
+    'ctype.h',
+    'errno.h',
+    'fenv.h',
+    'float.h',
+    'inttypes.h',
+    'iso646.h',
+    'limits.h',
+    'locale.h',
+    'math.h',
+    'setjmp.h',
+    'signal.h',
+    'stdalign.h',
+    'stdarg.h',
+    'stdatomic.h',
+    'stdbool.h',
+    'stddef.h',
+    'stdint.h',
+    'stdio.h',
+    'stdlib.h',
+    'stdnoreturn.h',
+    'string.h',
+    'tgmath.h',
+    'threads.h',
+    'time.h',
+    'uchar.h',
+    'wchar.h',
+    'wctype.h',
+    # additional POSIX C headers
+    'aio.h',
+    'arpa/inet.h',
+    'cpio.h',
+    'dirent.h',
+    'dlfcn.h',
+    'fcntl.h',
+    'fmtmsg.h',
+    'fnmatch.h',
+    'ftw.h',
+    'glob.h',
+    'grp.h',
+    'iconv.h',
+    'langinfo.h',
+    'libgen.h',
+    'monetary.h',
+    'mqueue.h',
+    'ndbm.h',
+    'net/if.h',
+    'netdb.h',
+    'netinet/in.h',
+    'netinet/tcp.h',
+    'nl_types.h',
+    'poll.h',
+    'pthread.h',
+    'pwd.h',
+    'regex.h',
+    'sched.h',
+    'search.h',
+    'semaphore.h',
+    'setjmp.h',
+    'signal.h',
+    'spawn.h',
+    'strings.h',
+    'stropts.h',
+    'syslog.h',
+    'tar.h',
+    'termios.h',
+    'trace.h',
+    'ulimit.h',
+    'unistd.h',
+    'utime.h',
+    'utmpx.h',
+    'wordexp.h',
+    # additional GNUlib headers
+    'a.out.h',
+    'aliases.h',
+    'alloca.h',
+    'ar.h',
+    'argp.h',
+    'argz.h',
+    'byteswap.h',
+    'crypt.h',
+    'endian.h',
+    'envz.h',
+    'err.h',
+    'error.h',
+    'execinfo.h',
+    'fpu_control.h',
+    'fstab.h',
+    'fts.h',
+    'getopt.h',
+    'gshadow.h',
+    'ieee754.h',
+    'ifaddrs.h',
+    'libintl.h',
+    'mcheck.h',
+    'mntent.h',
+    'obstack.h',
+    'paths.h',
+    'printf.h',
+    'pty.h',
+    'resolv.h',
+    'shadow.h',
+    'sysexits.h',
+    'ttyent.h',
+    # Additional linux glibc headers
+    'dlfcn.h',
+    'elf.h',
+    'features.h',
+    'gconv.h',
+    'gnu-versions.h',
+    'lastlog.h',
+    'libio.h',
+    'link.h',
+    'malloc.h',
+    'memory.h',
+    'netash/ash.h',
+    'netatalk/at.h',
+    'netax25/ax25.h',
+    'neteconet/ec.h',
+    'netipx/ipx.h',
+    'netiucv/iucv.h',
+    'netpacket/packet.h',
+    'netrom/netrom.h',
+    'netrose/rose.h',
+    'nfs/nfs.h',
+    'nl_types.h',
+    'nss.h',
+    're_comp.h',
+    'regexp.h',
+    'sched.h',
+    'sgtty.h',
+    'stab.h',
+    'stdc-predef.h',
+    'stdio_ext.h',
+    'syscall.h',
+    'termio.h',
+    'thread_db.h',
+    'ucontext.h',
+    'ustat.h',
+    'utmp.h',
+    'values.h',
+    'wait.h',
+    'xlocale.h',
+    # Hardware specific headers
+    'arm_neon.h',
+    'emmintrin.h',
+    'xmmintin.h',
+    ])
+
+# Folders of C libraries so commonly used in C++,
+# that they have parity with standard C libraries.
+C_STANDARD_HEADER_FOLDERS = frozenset([
+    # standard C library
+    "sys",
+    # glibc for linux
+    "arpa",
+    "asm-generic",
+    "bits",
+    "gnu",
+    "net",
+    "netinet",
+    "protocols",
+    "rpc",
+    "rpcsvc",
+    "scsi",
+    # linux kernel header
+    "drm",
+    "linux",
+    "misc",
+    "mtd",
+    "rdma",
+    "sound",
+    "video",
+    "xen",
+  ])
+
+
+def _ClassifyInclude(state, fileinfo, include, used_angle_brackets, include_order="default"):
+    """Figures out what kind of header 'include' is.
+
+    Args:
+      fileinfo: The current file cpplint is running over. A FileInfo instance.
+      include: The path to a #included file.
+      used_angle_brackets: True if the #include used <> rather than "".
+      include_order: "default" or other value allowed in program arguments
+
+    Returns:
+      One of the _XXX_HEADER constants.
+
+    For example:
+      >>> _ClassifyInclude(FileInfo('foo/foo.cc'), 'stdio.h', True)
+      _C_SYS_HEADER
+      >>> _ClassifyInclude(FileInfo('foo/foo.cc'), 'string', True)
+      _CPP_SYS_HEADER
+      >>> _ClassifyInclude(FileInfo('foo/foo.cc'), 'foo/foo.h', True, "standardcfirst")
+      _OTHER_SYS_HEADER
+      >>> _ClassifyInclude(FileInfo('foo/foo.cc'), 'foo/foo.h', False)
+      _LIKELY_MY_HEADER
+      >>> _ClassifyInclude(FileInfo('foo/foo_unknown_extension.cc'),
+      ...                  'bar/foo_other_ext.h', False)
+      _POSSIBLE_MY_HEADER
+      >>> _ClassifyInclude(FileInfo('foo/foo.cc'), 'foo/bar.h', False)
+      _OTHER_HEADER
+    """
+    # This is a list of all standard c++ header files, except
+    # those already checked for above.
+    is_cpp_header = include in _CPP_HEADERS
+
+    # Mark include as C header if in list or in a known folder for standard-ish C headers.
+    is_std_c_header = (include_order == "default") or (include in _C_HEADERS
+              # additional linux glibc header folders
+              or Search(r'(?:%s)\/.*\.h' % "|".join(C_STANDARD_HEADER_FOLDERS), include))
+
+    # Headers with C++ extensions shouldn't be considered C system headers
+    include_ext = os.path.splitext(include)[1]
+    is_system = used_angle_brackets and not include_ext in ['.hh', '.hpp', '.hxx', '.h++']
+
+    if is_system:
+        if is_cpp_header:
+            return _IncludeState._CPP_SYS_HEADER
+        if is_std_c_header:
+            return _IncludeState._C_SYS_HEADER
+        else:
+            return _IncludeState._OTHER_SYS_HEADER
+
+    # If the target file and the include we're checking share a
+    # basename when we drop common extensions, and the include
+    # lives in . , then it's likely to be owned by the target file.
+    target_dir, target_base = (
+        os.path.split(_DropCommonSuffixes(state, fileinfo.RepositoryName(state._repository))))
+    include_dir, include_base = os.path.split(_DropCommonSuffixes(state, include))
+    target_dir_pub = os.path.normpath(target_dir + '/../public')
+    target_dir_pub = target_dir_pub.replace('\\', '/')
+    if target_base == include_base and (
+        include_dir == target_dir or
+        include_dir == target_dir_pub):
+        return _IncludeState._LIKELY_MY_HEADER
+
+    # If the target and include share some initial basename
+    # component, it's possible the target is implementing the
+    # include, so it's allowed to be first, but we'll never
+    # complain if it's not there.
+    target_first_component = _RE_FIRST_COMPONENT.match(target_base)
+    include_first_component = _RE_FIRST_COMPONENT.match(include_base)
+    if (target_first_component and include_first_component and
+        target_first_component.group(0) ==
+        include_first_component.group(0)):
+        return _IncludeState._POSSIBLE_MY_HEADER
+
+    return _IncludeState._OTHER_HEADER
+
+def _DropCommonSuffixes(state, filename):
+    """Drops common suffixes like _test.cc or -inl.h from filename.
+
+    For example:
+      >>> _DropCommonSuffixes('foo/foo-inl.h')
+      'foo/foo'
+      >>> _DropCommonSuffixes('foo/bar/foo.cc')
+      'foo/bar/foo'
+      >>> _DropCommonSuffixes('foo/foo_internal.h')
+      'foo/foo'
+      >>> _DropCommonSuffixes('foo/foo_unusualinternal.h')
+      'foo/foo_unusualinternal'
+
+    Args:
+      filename: The input filename.
+
+    Returns:
+      The filename with the common suffix removed.
+    """
+    for suffix in itertools.chain(
+        ('%s.%s' % (test_suffix.lstrip('_'), ext)
+         for test_suffix, ext in itertools.product(_test_suffixes, state.GetNonHeaderExtensions())),
+        ('%s.%s' % (suffix, ext)
+         for suffix, ext in itertools.product(['inl', 'imp', 'internal'], state.GetHeaderExtensions()))):
+        if (filename.endswith(suffix) and len(filename) > len(suffix) and
+            filename[-len(suffix) - 1] in ('-', '_')):
+            return filename[:-len(suffix) - 1]
+    return os.path.splitext(filename)[0]

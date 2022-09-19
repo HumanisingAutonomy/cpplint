@@ -95,3 +95,27 @@ class FileInfo(object):
         """File has a source file extension."""
         return _IsExtension(self.Extension()[1:], extensions)
 
+def PathSplitToList(path):
+    """Returns the path split into a list by the separator.
+
+    Args:
+      path: An absolute or relative path (e.g. '/a/b/c/' or '../a')
+
+    Returns:
+      A list of path components (e.g. ['a', 'b', 'c]).
+    """
+    lst = []
+    while True:
+        (head, tail) = os.path.split(path)
+        if head == path:  # absolute paths end
+            lst.append(head)
+            break
+        if tail == path:  # relative paths end
+            lst.append(tail)
+            break
+
+        path = head
+        lst.append(tail)
+
+    lst.reverse()
+    return lst

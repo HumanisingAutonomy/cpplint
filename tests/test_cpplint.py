@@ -16,8 +16,16 @@ from halint.check_lines import (
 from halint import _CppLintState
 
 from halint.block_info import (
-    ReverseCloseExpression
+    ReverseCloseExpression,
+    GetLineWidth,
+    IsBlankLine
 )
+
+# Pattern for matching FileInfo.BaseName() against test file name
+_test_suffixes = ['_test', '_regtest', '_unittest']
+_TEST_FILE_SUFFIX = '(' + '|'.join(_test_suffixes) + r')$'
+
+from halint.file_info import PathSplitToList
 
 from .base_case import CpplintTestBase
 from .utils.error_collector import ErrorCollector
@@ -84,11 +92,11 @@ class TestCpplint(CpplintTestBase):
 
     # Test get line width.
     def testGetLineWidth(self):
-        assert 0 == cpplint.GetLineWidth('')
-        assert 10 == cpplint.GetLineWidth(str('x') * 10)
-        assert 16 == cpplint.GetLineWidth('\u90fd|\u9053|\u5e9c|\u770c|\u652f\u5e81')
-        assert 16 == cpplint.GetLineWidth(u'都|道|府|県|支庁')
-        assert 5 + 13 + 9 == cpplint.GetLineWidth(u'd𝐱/dt' + u'f : t ⨯ 𝐱 → ℝ' + u't ⨯ 𝐱 → ℝ')
+        assert 0 == GetLineWidth('')
+        assert 10 == GetLineWidth(str('x') * 10)
+        assert 16 == GetLineWidth('\u90fd|\u9053|\u5e9c|\u770c|\u652f\u5e81')
+        assert 16 == GetLineWidth(u'都|道|府|県|支庁')
+        assert 5 + 13 + 9 == GetLineWidth(u'd𝐱/dt' + u'f : t ⨯ 𝐱 → ℝ' + u't ⨯ 𝐱 → ℝ')
 
     def testGetTextInside(self):
         assert '' == cpplint._GetTextInside('fun()', r'fun\(')
@@ -2108,11 +2116,11 @@ class TestCpplint(CpplintTestBase):
              'Line contains NUL byte.  [readability/nul] [5]']
 
     def testIsBlankLine(self):
-        assert cpplint.IsBlankLine('')
-        assert cpplint.IsBlankLine(' ')
-        assert cpplint.IsBlankLine(' \t\r\n')
-        assert not cpplint.IsBlankLine('int a;')
-        assert not cpplint.IsBlankLine('{')
+        assert IsBlankLine('')
+        assert IsBlankLine(' ')
+        assert IsBlankLine(' \t\r\n')
+        assert not IsBlankLine('int a;')
+        assert not IsBlankLine('{')
 
     def testBlankLinesCheck(self):
         self.TestBlankLinesCheck(['{\n', '\n', '\n', '}\n'], 1, 1)
@@ -3464,7 +3472,7 @@ class TestCpplint(CpplintTestBase):
             # when the root directory of the repository is properly deduced.
             return
 
-        assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
         #
         # test --root flags:
         #   this changes the cpp header guard prefix
@@ -3473,7 +3481,7 @@ class TestCpplint(CpplintTestBase):
         # left-strip the header guard by using a root dir inside of the repo dir.
         # relative directory
         cpplint._cpplint_state._root = 'cpplint'
-        assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
         nested_header_directory = os.path.join(header_directory, "nested")
         nested_file_path = os.path.join(nested_header_directory, 'cpplint_test_header.h')
@@ -3481,20 +3489,20 @@ class TestCpplint(CpplintTestBase):
         open(nested_file_path, 'a').close()
 
         cpplint._cpplint_state._root = os.path.join('cpplint', 'nested')
-        actual = cpplint.GetHeaderGuardCPPVariable(nested_file_path)
+        actual = cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, nested_file_path)
         assert 'CPPLINT_TEST_HEADER_H_' == actual
 
         # absolute directory
         # (note that CPPLINT.cfg root=setting is always made absolute)
         cpplint._cpplint_state._root = header_directory
-        assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state,file_path)
 
         cpplint._cpplint_state._root = nested_header_directory
-        assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(nested_file_path)
+        assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state,nested_file_path)
 
         # --root flag is ignored if an non-existent directory is specified.
         cpplint._cpplint_state._root = 'NON_EXISTENT_DIR'
-        assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
         # prepend to the header guard by using a root dir that is more outer
         # than the repo dir
@@ -3510,7 +3518,7 @@ class TestCpplint(CpplintTestBase):
         # do not hardcode the 'styleguide' repository name, it could be anything.
         expected_prefix = re.sub(r'[^a-zA-Z0-9]', '_', styleguide_dir_name).upper() + '_'
         # do not have 'styleguide' repo in '/'
-        assert '%sCPPLINT_CPPLINT_TEST_HEADER_H_' % (expected_prefix) == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert '%sCPPLINT_CPPLINT_TEST_HEADER_H_' % (expected_prefix) == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
         # To run the 'relative path' tests, we must be in the directory of this test file.
         cur_dir = os.getcwd()
@@ -3520,12 +3528,12 @@ class TestCpplint(CpplintTestBase):
         styleguide_rel_path = os.path.relpath(styleguide_path, this_files_path)
         # '..'
         cpplint._cpplint_state._root = styleguide_rel_path
-        assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
         styleguide_rel_path = os.path.relpath(styleguide_parent_path,
                                               this_files_path)  # '../..'
         cpplint._cpplint_state._root = styleguide_rel_path
-        assert '%sCPPLINT_CPPLINT_TEST_HEADER_H_' % (expected_prefix) == cpplint.GetHeaderGuardCPPVariable(file_path)
+        assert '%sCPPLINT_CPPLINT_TEST_HEADER_H_' % (expected_prefix) == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
         cpplint._cpplint_state._root = None
 
@@ -3608,11 +3616,11 @@ class TestCpplint(CpplintTestBase):
             shutil.rmtree(temp_directory)
 
     def testPathSplitToList(self):
-        assert [''] == cpplint.PathSplitToList(os.path.join(''))
-        assert ['.'] == cpplint.PathSplitToList(os.path.join('.'))
-        assert ['..'] == cpplint.PathSplitToList(os.path.join('..'))
-        assert ['..', 'a', 'b'], cpplint.PathSplitToList(os.path.join('..', 'a' == 'b'))
-        assert ['a', 'b', 'c', 'd'], cpplint.PathSplitToList(os.path.join('a', 'b', 'c' == 'd'))
+        assert [''] == PathSplitToList(os.path.join(''))
+        assert ['.'] == PathSplitToList(os.path.join('.'))
+        assert ['..'] == PathSplitToList(os.path.join('..'))
+        assert ['..', 'a', 'b'], PathSplitToList(os.path.join('..', 'a' == 'b'))
+        assert ['a', 'b', 'c', 'd'], PathSplitToList(os.path.join('a', 'b', 'c' == 'd'))
 
     def testBuildHeaderGuardWithRepository(self):
         temp_directory = os.path.realpath(tempfile.mkdtemp())
@@ -3627,26 +3635,26 @@ class TestCpplint(CpplintTestBase):
             open(file_path, 'a').close()
 
             # search for .svn if _repository is not specified
-            assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+            assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
             # use the provided repository root for header guards
             cpplint._cpplint_state._repository = os.path.relpath(trunk_dir)
-            assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+            assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
             cpplint._cpplint_state._repository = os.path.abspath(trunk_dir)
-            assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+            assert 'CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
             # ignore _repository if it doesnt exist
             cpplint._cpplint_state._repository = os.path.join(temp_directory, 'NON_EXISTANT')
-            assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+            assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
             # ignore _repository if it exists but file isn't in it
             cpplint._cpplint_state._repository = os.path.relpath(temp_directory2)
-            assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+            assert 'TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
             # _root should be relative to _repository
             cpplint._cpplint_state._repository = os.path.relpath(trunk_dir)
             cpplint._cpplint_state._root = 'cpplint'
-            assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(file_path)
+            assert 'CPPLINT_TEST_HEADER_H_' == cpplint.GetHeaderGuardCPPVariable(cpplint._cpplint_state, file_path)
 
         finally:
             shutil.rmtree(temp_directory)

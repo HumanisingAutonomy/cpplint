@@ -14,7 +14,6 @@ class ErrorCollector(object):
 
     def __init__(self):
         self._errors = []
-        cpplint.ResetNolintSuppressions()
 
     def __call__(self, unused_filename: str, linenum: int,
                  category: str, confidence: int, message: str):

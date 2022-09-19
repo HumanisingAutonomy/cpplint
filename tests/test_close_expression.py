@@ -1,12 +1,13 @@
 import pytest
 
-import halint.cpplint as cpplint
+from halint.cleansed_lines import CleansedLines
+from halint.block_info import CloseExpression, ReverseCloseExpression
 
 class TestCloseExpression:
 
     @pytest.fixture(autouse=True)
     def setUp(self):
-        self.lines = cpplint.CleansedLines(
+        self.lines = CleansedLines(
             #           1         2         3         4         5
             # 0123456789012345678901234567890123456789012345678901234567890
             ['// Line 0',
@@ -49,7 +50,7 @@ class TestCloseExpression:
                      (17, 22, 18, 46),
                      (18, 47, 20, 1)]
         for p in positions:
-            (_, line, column) = cpplint.CloseExpression(self.lines, p[0], p[1])
+            (_, line, column) = CloseExpression(self.lines, p[0], p[1])
             assert (p[2], p[3]) == (line, column)
 
     def testReverseCloseExpression(self):
@@ -69,6 +70,6 @@ class TestCloseExpression:
                      (18, 45, 17, 22),
                      (20, 0, 18, 47)]
         for p in positions:
-            (_, line, column) = cpplint.ReverseCloseExpression(self.lines, p[0], p[1])
+            (_, line, column) = ReverseCloseExpression(self.lines, p[0], p[1])
             assert (p[2], p[3]) == (line, column)
 

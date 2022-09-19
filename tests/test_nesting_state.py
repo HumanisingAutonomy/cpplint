@@ -1,6 +1,7 @@
 import pytest
 
 import halint.cpplint as cpplint
+from halint.block_info import _ClassInfo, _NamespaceInfo, _NO_ASM, _INSIDE_ASM, _END_ASM, _BLOCK_ASM
 from halint.nesting_state import NestingState
 from .utils.error_collector import ErrorCollector
 
@@ -24,7 +25,7 @@ class TestNestingState:
     def testNamespace(self):
         self.UpdateWithLines(['namespace {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._NamespaceInfo)
+        assert isinstance(self.nesting_state.stack[0], _NamespaceInfo)
         assert self.nesting_state.stack[0].seen_open_brace
         assert self.nesting_state.stack[0].name == ''
 
@@ -46,7 +47,7 @@ class TestNestingState:
     def testDecoratedClass(self):
         self.UpdateWithLines(['class Decorated_123 API A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A'
         assert not self.nesting_state.stack[0].is_derived
         assert self.nesting_state.stack[0].class_indent == 0
@@ -56,7 +57,7 @@ class TestNestingState:
     def testInnerClass(self):
         self.UpdateWithLines(['class A::B::C {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A::B::C'
         assert not self.nesting_state.stack[0].is_derived
         assert self.nesting_state.stack[0].class_indent == 0
@@ -66,7 +67,7 @@ class TestNestingState:
     def testClass(self):
         self.UpdateWithLines(['class A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A'
         assert not self.nesting_state.stack[0].is_derived
         assert self.nesting_state.stack[0].class_indent == 0
@@ -74,7 +75,7 @@ class TestNestingState:
         self.UpdateWithLines(['};',
                               'struct B : public A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'B'
         assert self.nesting_state.stack[0].is_derived
 
@@ -82,7 +83,7 @@ class TestNestingState:
                               'class C',
                               ': public A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'C'
         assert self.nesting_state.stack[0].is_derived
 
@@ -92,10 +93,10 @@ class TestNestingState:
 
         self.UpdateWithLines(['class D {', '  class E {'])
         assert len(self.nesting_state.stack) == 2
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'D'
         assert not self.nesting_state.stack[0].is_derived
-        assert isinstance(self.nesting_state.stack[1], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[1], _ClassInfo)
         assert self.nesting_state.stack[1].name == 'E'
         assert not self.nesting_state.stack[1].is_derived
         assert self.nesting_state.stack[1].class_indent == 2
@@ -107,7 +108,7 @@ class TestNestingState:
     def testClassAccess(self):
         self.UpdateWithLines(['class A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].access == 'private'
 
         self.UpdateWithLines([' public:'])
@@ -121,7 +122,7 @@ class TestNestingState:
 
         self.UpdateWithLines(['  struct B {'])
         assert len(self.nesting_state.stack) == 2
-        assert isinstance(self.nesting_state.stack[1], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[1], _ClassInfo)
         assert self.nesting_state.stack[1].access == 'public'
         assert self.nesting_state.stack[0].access == 'private'
 
@@ -135,14 +136,14 @@ class TestNestingState:
     def testStruct(self):
         self.UpdateWithLines(['struct A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A'
         assert not self.nesting_state.stack[0].is_derived
 
         self.UpdateWithLines(['}',
                               'void Func(struct B arg) {'])
         assert len(self.nesting_state.stack) == 1
-        assert not isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert not isinstance(self.nesting_state.stack[0], _ClassInfo)
 
         self.UpdateWithLines(['}'])
         assert len(self.nesting_state.stack) == 0
@@ -176,7 +177,7 @@ class TestNestingState:
                               '#endif'])
         assert len(self.nesting_state.pp_stack) == 0
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A'
         self.UpdateWithLines(['};'])
         assert len(self.nesting_state.stack) == 0
@@ -185,7 +186,7 @@ class TestNestingState:
                               '#ifdef MACRO7'])
         assert len(self.nesting_state.pp_stack) == 1
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'D'
         assert not self.nesting_state.stack[0].is_derived
 
@@ -218,7 +219,7 @@ class TestNestingState:
         assert len(self.nesting_state.stack) == 0
         self.UpdateWithLines(['class A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A'
 
         self.UpdateWithLines(['};',
@@ -226,14 +227,14 @@ class TestNestingState:
                               '  template <typename, typename> class B>',
                               'class C'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'C'
         self.UpdateWithLines([';'])
         assert len(self.nesting_state.stack) == 0
 
         self.UpdateWithLines(['class D : public Tmpl<E>'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'D'
 
         self.UpdateWithLines(['{', '};'])
@@ -245,35 +246,35 @@ class TestNestingState:
                               '          typename I>',
                               'static void Func() {'])
         assert len(self.nesting_state.stack) == 1
-        assert not isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert not isinstance(self.nesting_state.stack[0], _ClassInfo)
         self.UpdateWithLines(['}',
                               'template <class J> class K {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'K'
 
     def testTemplateDefaultArg(self):
         self.UpdateWithLines([
           'template <class T, class D = default_delete<T>> class unique_ptr {'])
         assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[0], isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert self.nesting_state.stack[0], isinstance(self.nesting_state.stack[0], _ClassInfo)
 
     def testTemplateInnerClass(self):
         self.UpdateWithLines(['class A {',
                               ' public:'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
 
         self.UpdateWithLines(['  template <class B>',
                               '  class C<alloc<B> >',
                               '      : public A {'])
         assert len(self.nesting_state.stack) == 2
-        assert isinstance(self.nesting_state.stack[1], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[1], _ClassInfo)
 
     def testArguments(self):
         self.UpdateWithLines(['class A {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'A'
         assert self.nesting_state.stack[-1].open_parentheses == 0
 
@@ -290,7 +291,7 @@ class TestNestingState:
 
         self.UpdateWithLines(['struct B {'])
         assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], cpplint._ClassInfo)
+        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
         assert self.nesting_state.stack[0].name == 'B'
 
         self.UpdateWithLines(['#ifdef MACRO',
@@ -322,12 +323,12 @@ class TestNestingState:
                               '                  int count) {'])
         assert len(self.nesting_state.stack) == 1
         assert self.nesting_state.stack[-1].open_parentheses == 0
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._NO_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _NO_ASM
 
         self.UpdateWithLines(['  asm volatile ('])
         assert len(self.nesting_state.stack) == 1
         assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._INSIDE_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
         self.UpdateWithLines(['    "sub        %0,%1                         \\n"',
                               '  "1:                                         \\n"',
@@ -345,28 +346,28 @@ class TestNestingState:
                               '  : "memory", "cc"'])
         assert len(self.nesting_state.stack) == 1
         assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._INSIDE_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
         self.UpdateWithLines(['#if defined(__SSE2__)',
                               '    , "xmm0", "xmm1"'])
         assert len(self.nesting_state.stack) == 1
         assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._INSIDE_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
         self.UpdateWithLines(['#endif'])
         assert len(self.nesting_state.stack) == 1
         assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._INSIDE_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
         self.UpdateWithLines(['  );'])
         assert len(self.nesting_state.stack) == 1
         assert self.nesting_state.stack[-1].open_parentheses == 0
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._END_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _END_ASM
 
         self.UpdateWithLines(['__asm {'])
         assert len(self.nesting_state.stack) == 2
         assert self.nesting_state.stack[-1].open_parentheses == 0
-        assert self.nesting_state.stack[-1].inline_asm == cpplint._BLOCK_ASM
+        assert self.nesting_state.stack[-1].inline_asm == _BLOCK_ASM
 
         self.UpdateWithLines(['}'])
         assert len(self.nesting_state.stack) == 1

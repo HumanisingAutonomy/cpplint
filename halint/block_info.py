@@ -920,6 +920,85 @@ def IsBlockInNameSpace(nesting_state, is_forward_declaration):
             nesting_state.stack[-1].check_namespace_indentation and
             isinstance(nesting_state.stack[-2], _NamespaceInfo))
 
+def IsDerivedFunction(clean_lines, linenum):
+    """Check if current line contains an inherited function.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      linenum: The number of the line to check.
+    Returns:
+      True if current line contains a function with "override"
+      virt-specifier.
+    """
+    # Scan back a few lines for start of current function
+    for i in range(linenum, max(-1, linenum - 10), -1):
+        match = Match(r'^([^()]*\w+)\(', clean_lines.elided[i])
+        if match:
+            # Look for "override" after the matching closing parenthesis
+            line, _, closing_paren = CloseExpression(
+                clean_lines, i, len(match.group(1)))
+            return (closing_paren >= 0 and
+                    Search(r'\boverride\b', line[closing_paren:]))
+    return False
+
+
+def IsOutOfLineMethodDefinition(clean_lines, linenum):
+    """Check if current line contains an out-of-line method definition.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      linenum: The number of the line to check.
+    Returns:
+      True if current line contains an out-of-line method definition.
+    """
+    # Scan back a few lines for start of current function
+    for i in range(linenum, max(-1, linenum - 10), -1):
+        if Match(r'^([^()]*\w+)\(', clean_lines.elided[i]):
+            return Match(r'^[^()]*\w+::\w+\(', clean_lines.elided[i]) is not None
+    return False
+
+
+def IsInitializerList(clean_lines, linenum):
+    """Check if current line is inside constructor initializer list.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      linenum: The number of the line to check.
+    Returns:
+      True if current line appears to be inside constructor initializer
+      list, False otherwise.
+    """
+    for i in range(linenum, 1, -1):
+        line = clean_lines.elided[i]
+        if i == linenum:
+            remove_function_body = Match(r'^(.*)\{\s*$', line)
+            if remove_function_body:
+                line = remove_function_body.group(1)
+
+        if Search(r'\s:\s*\w+[({]', line):
+            # A lone colon tend to indicate the start of a constructor
+            # initializer list.  It could also be a ternary operator, which
+            # also tend to appear in constructor initializer lists as
+            # opposed to parameter lists.
+            return True
+        if Search(r'\}\s*,\s*$', line):
+            # A closing brace followed by a comma is probably the end of a
+            # brace-initialized member in constructor initializer list.
+            return True
+        if Search(r'[{};]\s*$', line):
+            # Found one of the following:
+            # - A closing brace or semicolon, probably the end of the previous
+            #   function.
+            # - An opening brace, probably the start of current class or namespace.
+            #
+            # Current line is probably not inside an initializer list since
+            # we saw one of those things without seeing the starting colon.
+            return False
+
+    # Got to the beginning of the file without seeing the start of
+    # constructor initializer list.
+    return False
+
 def GetPreviousNonBlankLine(clean_lines, linenum):
     """Return the most recent non-blank line and its line number.
 
@@ -941,6 +1020,63 @@ def GetPreviousNonBlankLine(clean_lines, linenum):
             return (prevline, prevlinenum)
         prevlinenum -= 1
     return ('', -1)
+
+
+def _GetTextInside(text, start_pattern):
+    r"""Retrieves all the text between matching open and close parentheses.
+
+    Given a string of lines and a regular expression string, retrieve all the text
+    following the expression and between opening punctuation symbols like
+    (, [, or {, and the matching close-punctuation symbol. This properly nested
+    occurrences of the punctuations, so for the text like
+      printf(a(), b(c()));
+    a call to _GetTextInside(text, r'printf\(') will return 'a(), b(c())'.
+    start_pattern must match string having an open punctuation symbol at the end.
+
+    Args:
+      text: The lines to extract text. Its comments and strings must be elided.
+             It can be single line and can span multiple lines.
+      start_pattern: The regexp string indicating where to start extracting
+                     the text.
+    Returns:
+      The extracted text.
+      None if either the opening string or ending punctuation could not be found.
+    """
+    # TODO(unknown): Audit cpplint.py to see what places could be profitably
+    # rewritten to use _GetTextInside (and use inferior regexp matching today).
+
+    # Give opening punctuations to get the matching close-punctuations.
+    matching_punctuation = {'(': ')', '{': '}', '[': ']'}
+    closing_punctuation = set(matching_punctuation.values())
+
+    # Find the position to start extracting text.
+    match = re.search(start_pattern, text, re.M)
+    if not match:  # start_pattern not found in text.
+        return None
+    start_position = match.end(0)
+
+    assert start_position > 0, (
+        'start_pattern must ends with an opening punctuation.')
+    assert text[start_position - 1] in matching_punctuation, (
+        'start_pattern must ends with an opening punctuation.')
+    # Stack of closing punctuations we expect to have in text after position.
+    punctuation_stack = [matching_punctuation[text[start_position - 1]]]
+    position = start_position
+    while punctuation_stack and position < len(text):
+        if text[position] == punctuation_stack[-1]:
+            punctuation_stack.pop()
+        elif text[position] in closing_punctuation:
+            # A closing punctuation without matching opening punctuations.
+            return None
+        elif text[position] in matching_punctuation:
+            punctuation_stack.append(matching_punctuation[text[position]])
+        position += 1
+    if punctuation_stack:
+        # Opening punctuations left without matching close-punctuations.
+        return None
+    # punctuations match.
+    return text[start_position:position - 1]
+
 
 def _IsType(clean_lines, nesting_state, expr):
     """Check if expression looks like a type name, returns true if so.

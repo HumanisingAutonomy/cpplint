@@ -3,5 +3,68 @@
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+
+"todo-tree.highlights.defaultHighlight": {
+    "icon": "alert",
+    "type": "text-and-comment",
+    "foreground": "#000",
+    "background": "#FFF",
+    "opacity": 50,
+    "iconColour": "#00F",
+    "gutterIcon": true,
+},
+"todo-tree.highlights.customHighlight": {
+    "TODO": {
+        "icon": "check",
+        "foreground": "#000",
+        "background": "#FFF",
+        "iconColour": "#FFF",
+    },
+    "NOTE": {
+        "icon": "note",
+        "foreground": "#FFF",
+        "background": "#AAA",
+        "iconColour": "#AAA",
+    },
+    "COMMENT": {
+        "icon": "note",
+        "foreground": "#FFF",
+        "background": "#AAA",
+        "iconColour": "#AAA",
+    },
+    "FIXME": {
+        "foreground": "#000",
+        "background": "#FF0",
+        "iconColour": "#FF0",
+    },
+    "BUG": {
+        "foreground": "#000",
+        "background": "#F00",
+        "iconColour": "#F00",
+    },
+    "[ ]": {
+        "icon": "check",
+        "foreground": "#000",
+        "background": "#FFF",
+        "iconColour": "#FF0",
+    },
+    "[x]": {
+        "icon": "check",
+        "foreground": "#FFF",
+        "background": "#0F0",
+        "iconColour": "#0F0",
+    }
+},
+"todo-tree.general.tags": [
+    "BUG",
+    "HACK",
+    "FIXME",
+    "TODO",
+    "NOTE",
+    "COMMENT",
+    "[ ]",
+    "[x]"
+],
+"todo-tree.regex.regex": "(//|#|<!--|;|/\\*|^|^\\s*(-|\\d+.))\\s*($TAGS).*(\\n\\s*//\\s{2,}.*)*",
 }

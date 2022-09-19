@@ -4,7 +4,7 @@ import pytest
 
 import halint.cpplint as cpplint
 from halint.include_state import _IncludeState
-from halint.block_info import _DropCommonSuffixes
+from halint.block_info import _DropCommonSuffixes, _ClassifyInclude
 
 from .base_case import CpplintTestBase
 
@@ -62,7 +62,7 @@ class TestOrderOfIncludes(CpplintTestBase):
 
     def testClassifyInclude(self, state):
         file_info = cpplint.FileInfo
-        classify_include = cpplint._ClassifyInclude
+        classify_include = _ClassifyInclude
         assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'stdio.h', True)
         assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'sys/time.h', True)
         assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'netipx/ipx.h', True)

@@ -4,6 +4,7 @@ import pytest
 
 import halint.cpplint as cpplint
 from halint.include_state import _IncludeState
+from halint.block_info import _DropCommonSuffixes
 
 from .base_case import CpplintTestBase
 
@@ -59,45 +60,45 @@ class TestOrderOfIncludes(CpplintTestBase):
         assert '' == self.include_state.CheckNextIncludeOrder(_IncludeState._POSSIBLE_MY_HEADER)
 
 
-    def testClassifyInclude(self):
+    def testClassifyInclude(self, state):
         file_info = cpplint.FileInfo
         classify_include = cpplint._ClassifyInclude
-        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'stdio.h', True)
-        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'sys/time.h', True)
-        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'netipx/ipx.h', True)
-        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'arpa/ftp.h', True)
-        assert _IncludeState._CPP_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'string', True)
-        assert _IncludeState._CPP_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'typeinfo', True)
-        assert _IncludeState._C_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo.h', True)
-        assert _IncludeState._OTHER_SYS_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo.h', True, "standardcfirst")
-        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.cc'), 'string', False)
-        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.cc'), 'boost/any.hpp', True)
-        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.hxx'), 'boost/any.hpp', True)
-        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/foo.h++'), 'boost/any.hpp', True)
-        assert _IncludeState._LIKELY_MY_HEADER == classify_include(file_info('foo/foo.cc'), 'foo/foo-inl.h', False)
-        assert _IncludeState._LIKELY_MY_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/public/foo.h', False)
-        assert _IncludeState._POSSIBLE_MY_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/other/public/foo.h', False)
-        assert _IncludeState._OTHER_HEADER == classify_include(file_info('foo/internal/foo.cc'), 'foo/other/public/foop.h', False)
+        assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'stdio.h', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'sys/time.h', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'netipx/ipx.h', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'arpa/ftp.h', True)
+        assert _IncludeState._CPP_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'string', True)
+        assert _IncludeState._CPP_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'typeinfo', True)
+        assert _IncludeState._C_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'foo/foo.h', True)
+        assert _IncludeState._OTHER_SYS_HEADER == classify_include(state, file_info('foo/foo.cc'), 'foo/foo.h', True, "standardcfirst")
+        assert _IncludeState._OTHER_HEADER == classify_include(state, file_info('foo/foo.cc'), 'string', False)
+        assert _IncludeState._OTHER_HEADER == classify_include(state, file_info('foo/foo.cc'), 'boost/any.hpp', True)
+        assert _IncludeState._OTHER_HEADER == classify_include(state, file_info('foo/foo.hxx'), 'boost/any.hpp', True)
+        assert _IncludeState._OTHER_HEADER == classify_include(state, file_info('foo/foo.h++'), 'boost/any.hpp', True)
+        assert _IncludeState._LIKELY_MY_HEADER == classify_include(state, file_info('foo/foo.cc'), 'foo/foo-inl.h', False)
+        assert _IncludeState._LIKELY_MY_HEADER == classify_include(state, file_info('foo/internal/foo.cc'), 'foo/public/foo.h', False)
+        assert _IncludeState._POSSIBLE_MY_HEADER == classify_include(state, file_info('foo/internal/foo.cc'), 'foo/other/public/foo.h', False)
+        assert _IncludeState._OTHER_HEADER == classify_include(state, file_info('foo/internal/foo.cc'), 'foo/other/public/foop.h', False)
 
-    def testTryDropCommonSuffixes(self):
+    def testTryDropCommonSuffixes(self, state):
         cpplint._hpp_headers = set([])
         cpplint._valid_extensions = set([])
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo-inl.h')
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo-inl.hxx')
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo-inl.h++')
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo-inl.hpp')
-        assert 'foo/bar/foo' == cpplint._DropCommonSuffixes('foo/bar/foo_inl.h')
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo.cc')
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo.cxx')
-        assert 'foo/foo' == cpplint._DropCommonSuffixes('foo/foo.c')
-        assert 'foo/foo_unusualinternal' == cpplint._DropCommonSuffixes('foo/foo_unusualinternal.h')
-        assert 'foo/foo_unusualinternal' == cpplint._DropCommonSuffixes('foo/foo_unusualinternal.hpp')
-        assert '' == cpplint._DropCommonSuffixes('_test.cc')
-        assert '' == cpplint._DropCommonSuffixes('_test.c')
-        assert '' == cpplint._DropCommonSuffixes('_test.c++')
-        assert 'test' == cpplint._DropCommonSuffixes('test.c')
-        assert 'test' == cpplint._DropCommonSuffixes('test.cc')
-        assert 'test' == cpplint._DropCommonSuffixes('test.c++')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo-inl.h')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo-inl.hxx')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo-inl.h++')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo-inl.hpp')
+        assert 'foo/bar/foo' == _DropCommonSuffixes(state, 'foo/bar/foo_inl.h')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo.cc')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo.cxx')
+        assert 'foo/foo' == _DropCommonSuffixes(state, 'foo/foo.c')
+        assert 'foo/foo_unusualinternal' == _DropCommonSuffixes(state, 'foo/foo_unusualinternal.h')
+        assert 'foo/foo_unusualinternal' == _DropCommonSuffixes(state, 'foo/foo_unusualinternal.hpp')
+        assert '' == _DropCommonSuffixes(state, '_test.cc')
+        assert '' == _DropCommonSuffixes(state, '_test.c')
+        assert '' == _DropCommonSuffixes(state, '_test.c++')
+        assert 'test' == _DropCommonSuffixes(state, 'test.c')
+        assert 'test' == _DropCommonSuffixes(state, 'test.cc')
+        assert 'test' == _DropCommonSuffixes(state, 'test.c++')
 
     def testRegression(self):
         def Format(includes):

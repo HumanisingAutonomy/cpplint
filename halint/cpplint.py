@@ -1201,6 +1201,10 @@ _RE_PATTERN_REF_STREAM_PARAM = (
     r'(?:.*stream\s*&\s*' + _RE_PATTERN_IDENT + r')')
 
 
+from .check_language import (
+    CheckCasts
+)
+
 def CheckLanguage(filename, clean_lines, linenum, file_extension,
                   include_state, nesting_state, error):
     """Checks rules from the 'C++ language rules' section of cppguide.html.
@@ -1218,6 +1222,9 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension,
                      the current stack of nested blocks being parsed.
       error: The function to call with any errors found.
     """
+
+    #TODO: This should just be a list of checks
+
     # If the line is empty or consists of entirely a comment, no need to
     # check it.
     line = clean_lines.elided[linenum]
@@ -1671,199 +1678,6 @@ def CheckForNonConstReference(filename, clean_lines, linenum,
                   ReplaceAll(' *<', '<', parameter))
 
 
-def CheckCasts(filename, clean_lines, linenum, error):
-    """Various cast related checks.
-
-    Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
-    """
-    line = clean_lines.elided[linenum]
-
-    # Check to see if they're using an conversion function cast.
-    # I just try to capture the most common basic types, though there are more.
-    # Parameterless conversion functions, such as bool(), are allowed as they are
-    # probably a member operator declaration or default constructor.
-    match = Search(
-        r'(\bnew\s+(?:const\s+)?|\S<\s*(?:const\s+)?)?\b'
-        r'(int|float|double|bool|char|int32|uint32|int64|uint64)'
-        r'(\([^)].*)', line)
-    expecting_function = ExpectingFunctionArgs(clean_lines, linenum)
-    if match and not expecting_function:
-        matched_type = match.group(2)
-
-        # matched_new_or_template is used to silence two false positives:
-        # - New operators
-        # - Template arguments with function types
-        #
-        # For template arguments, we match on types immediately following
-        # an opening bracket without any spaces.  This is a fast way to
-        # silence the common case where the function type is the first
-        # template argument.  False negative with less-than comparison is
-        # avoided because those operators are usually followed by a space.
-        #
-        #   function<double(double)>   // bracket + no space = false positive
-        #   value < double(42)         // bracket + space = true positive
-        matched_new_or_template = match.group(1)
-
-        # Avoid arrays by looking for brackets that come after the closing
-        # parenthesis.
-        if Match(r'\([^()]+\)\s*\[', match.group(3)):
-            return
-
-        # Other things to ignore:
-        # - Function pointers
-        # - Casts to pointer types
-        # - Placement new
-        # - Alias declarations
-        matched_funcptr = match.group(3)
-        if (matched_new_or_template is None and
-            not (matched_funcptr and
-                 (Match(r'\((?:[^() ]+::\s*\*\s*)?[^() ]+\)\s*\(',
-                        matched_funcptr) or
-                  matched_funcptr.startswith('(*)'))) and
-            not Match(r'\s*using\s+\S+\s*=\s*' + matched_type, line) and
-            not Search(r'new\(\S+\)\s*' + matched_type, line)):
-            error(filename, linenum, 'readability/casting', 4,
-                  'Using deprecated casting style.  '
-                  'Use static_cast<%s>(...) instead' %
-                  matched_type)
-
-    if not expecting_function:
-        CheckCStyleCast(filename, clean_lines, linenum, 'static_cast',
-                        r'\((int|float|double|bool|char|u?int(16|32|64)|size_t)\)', error)
-
-    # This doesn't catch all cases. Consider (const char * const)"hello".
-    #
-    # (char *) "foo" should always be a const_cast (reinterpret_cast won't
-    # compile).
-    if CheckCStyleCast(filename, clean_lines, linenum, 'const_cast',
-                       r'\((char\s?\*+\s?)\)\s*"', error):
-        pass
-    else:
-        # Check pointer casts for other than string constants
-        CheckCStyleCast(filename, clean_lines, linenum, 'reinterpret_cast',
-                        r'\((\w+\s?\*+\s?)\)', error)
-
-    # In addition, we look for people taking the address of a cast.  This
-    # is dangerous -- casts can assign to temporaries, so the pointer doesn't
-    # point where you think.
-    #
-    # Some non-identifier character is required before the '&' for the
-    # expression to be recognized as a cast.  These are casts:
-    #   expression = &static_cast<int*>(temporary());
-    #   function(&(int*)(temporary()));
-    #
-    # This is not a cast:
-    #   reference_type&(int* function_param);
-    match = Search(
-        r'(?:[^\w]&\(([^)*][^)]*)\)[\w(])|'
-        r'(?:[^\w]&(static|dynamic|down|reinterpret)_cast\b)', line)
-    if match:
-        # Try a better error message when the & is bound to something
-        # dereferenced by the casted pointer, as opposed to the casted
-        # pointer itself.
-        parenthesis_error = False
-        match = Match(r'^(.*&(?:static|dynamic|down|reinterpret)_cast\b)<', line)
-        if match:
-            _, y1, x1 = CloseExpression(clean_lines, linenum, len(match.group(1)))
-            if x1 >= 0 and clean_lines.elided[y1][x1] == '(':
-                _, y2, x2 = CloseExpression(clean_lines, y1, x1)
-                if x2 >= 0:
-                    extended_line = clean_lines.elided[y2][x2:]
-                    if y2 < clean_lines.NumLines() - 1:
-                        extended_line += clean_lines.elided[y2 + 1]
-                    if Match(r'\s*(?:->|\[)', extended_line):
-                        parenthesis_error = True
-
-        if parenthesis_error:
-            error(filename, linenum, 'readability/casting', 4,
-                  ('Are you taking an address of something dereferenced '
-                   'from a cast?  Wrapping the dereferenced expression in '
-                   'parentheses will make the binding more obvious'))
-        else:
-            error(filename, linenum, 'runtime/casting', 4,
-                  ('Are you taking an address of a cast?  '
-                   'This is dangerous: could be a temp var.  '
-                   'Take the address before doing the cast, rather than after'))
-
-
-def CheckCStyleCast(filename, clean_lines, linenum, cast_type, pattern, error):
-    """Checks for a C-style cast by looking for the pattern.
-
-    Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      cast_type: The string for the C++ cast to recommend.  This is either
-        reinterpret_cast, static_cast, or const_cast, depending.
-      pattern: The regular expression used to find C-style casts.
-      error: The function to call with any errors found.
-
-    Returns:
-      True if an error was emitted.
-      False otherwise.
-    """
-    line = clean_lines.elided[linenum]
-    match = Search(pattern, line)
-    if not match:
-        return False
-
-    # Exclude lines with keywords that tend to look like casts
-    context = line[0:match.start(1) - 1]
-    if Match(r'.*\b(?:sizeof|alignof|alignas|[_A-Z][_A-Z0-9]*)\s*$', context):
-        return False
-
-    # Try expanding current context to see if we one level of
-    # parentheses inside a macro.
-    if linenum > 0:
-        for i in range(linenum - 1, max(0, linenum - 5), -1):
-            context = clean_lines.elided[i] + context
-    if Match(r'.*\b[_A-Z][_A-Z0-9]*\s*\((?:\([^()]*\)|[^()])*$', context):
-        return False
-
-    # operator++(int) and operator--(int)
-    if (context.endswith(' operator++') or context.endswith(' operator--') or
-        context.endswith('::operator++') or context.endswith('::operator--')):
-        return False
-
-    # A single unnamed argument for a function tends to look like old style cast.
-    # If we see those, don't issue warnings for deprecated casts.
-    remainder = line[match.end(0):]
-    if Match(r'^\s*(?:;|const\b|throw\b|final\b|override\b|[=>{),]|->)',
-             remainder):
-        return False
-
-    # At this point, all that should be left is actual casts.
-    error(filename, linenum, 'readability/casting', 4,
-          'Using C-style cast.  Use %s<%s>(...) instead' %
-          (cast_type, match.group(1)))
-
-    return True
-
-
-def ExpectingFunctionArgs(clean_lines, linenum):
-    """Checks whether where function type arguments are expected.
-
-    Args:
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-
-    Returns:
-      True if the line at 'linenum' is inside something that expects arguments
-      of function types.
-    """
-    line = clean_lines.elided[linenum]
-    return (Match(r'^\s*MOCK_(CONST_)?METHOD\d+(_T)?\(', line) or
-            (linenum >= 2 and
-             (Match(r'^\s*MOCK_(?:CONST_)?METHOD\d+(?:_T)?\((?:\S+,)?\s*$',
-                    clean_lines.elided[linenum - 1]) or
-              Match(r'^\s*MOCK_(?:CONST_)?METHOD\d+(?:_T)?\(\s*$',
-                    clean_lines.elided[linenum - 2]) or
-              Search(r'\bstd::m?function\s*\<\s*$',
-                     clean_lines.elided[linenum - 1]))))
 
 
 _HEADERS_CONTAINING_TEMPLATES = (

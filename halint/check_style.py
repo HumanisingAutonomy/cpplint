@@ -572,3 +572,156 @@ def CheckComment(line, filename, linenum, next_line_start, error):
                 not Match(r'(///|//\!)(\s+|$)', comment)):
                 error(filename, linenum, 'whitespace/comments', 4,
                       'Should have a space between // and comment')
+
+def CheckOperatorSpacing(filename, clean_lines, linenum, error):
+    """Checks for horizontal spacing around operators.
+
+    Args:
+      filename: The name of the current file.
+      clean_lines: A CleansedLines instance containing the file.
+      linenum: The number of the line to check.
+      error: The function to call with any errors found.
+    """
+    line = clean_lines.elided[linenum]
+
+    # Don't try to do spacing checks for operator methods.  Do this by
+    # replacing the troublesome characters with something else,
+    # preserving column position for all other characters.
+    #
+    # The replacement is done repeatedly to avoid false positives from
+    # operators that call operators.
+    while True:
+        match = Match(r'^(.*\boperator\b)(\S+)(\s*\(.*)$', line)
+        if match:
+            line = match.group(1) + ('_' * len(match.group(2))) + match.group(3)
+        else:
+            break
+
+    # We allow no-spaces around = within an if: "if ( (a=Foo()) == 0 )".
+    # Otherwise not.  Note we only check for non-spaces on *both* sides;
+    # sometimes people put non-spaces on one side when aligning ='s among
+    # many lines (not that this is behavior that I approve of...)
+    if ((Search(r'[\w.]=', line) or
+         Search(r'=[\w.]', line))
+        and not Search(r'\b(if|while|for) ', line)
+        # Operators taken from [lex.operators] in C++11 standard.
+        and not Search(r'(>=|<=|==|!=|&=|\^=|\|=|\+=|\*=|\/=|\%=)', line)
+        and not Search(r'operator=', line)):
+        error(filename, linenum, 'whitespace/operators', 4,
+              'Missing spaces around =')
+
+    # It's ok not to have spaces around binary operators like + - * /, but if
+    # there's too little whitespace, we get concerned.  It's hard to tell,
+    # though, so we punt on this one for now.  TODO.
+
+    # You should always have whitespace around binary operators.
+    #
+    # Check <= and >= first to avoid false positives with < and >, then
+    # check non-include lines for spacing around < and >.
+    #
+    # If the operator is followed by a comma, assume it's be used in a
+    # macro context and don't do any checks.  This avoids false
+    # positives.
+    #
+    # Note that && is not included here.  This is because there are too
+    # many false positives due to RValue references.
+    match = Search(r'[^<>=!\s](==|!=|<=|>=|\|\|)[^<>=!\s,;\)]', line)
+    if match:
+        error(filename, linenum, 'whitespace/operators', 3,
+              'Missing spaces around %s' % match.group(1))
+    elif not Match(r'#.*include', line):
+        # Look for < that is not surrounded by spaces.  This is only
+        # triggered if both sides are missing spaces, even though
+        # technically should should flag if at least one side is missing a
+        # space.  This is done to avoid some false positives with shifts.
+        match = Match(r'^(.*[^\s<])<[^\s=<,]', line)
+        if match:
+            (_, _, end_pos) = CloseExpression(
+                clean_lines, linenum, len(match.group(1)))
+            if end_pos <= -1:
+                error(filename, linenum, 'whitespace/operators', 3,
+                      'Missing spaces around <')
+
+        # Look for > that is not surrounded by spaces.  Similar to the
+        # above, we only trigger if both sides are missing spaces to avoid
+        # false positives with shifts.
+        match = Match(r'^(.*[^-\s>])>[^\s=>,]', line)
+        if match:
+            (_, _, start_pos) = ReverseCloseExpression(
+                clean_lines, linenum, len(match.group(1)))
+            if start_pos <= -1:
+                error(filename, linenum, 'whitespace/operators', 3,
+                      'Missing spaces around >')
+
+    # We allow no-spaces around << when used like this: 10<<20, but
+    # not otherwise (particularly, not when used as streams)
+    #
+    # We also allow operators following an opening parenthesis, since
+    # those tend to be macros that deal with operators.
+    match = Search(r'(operator|[^\s(<])(?:L|UL|LL|ULL|l|ul|ll|ull)?<<([^\s,=<])', line)
+    if (match and not (match.group(1).isdigit() and match.group(2).isdigit()) and
+        not (match.group(1) == 'operator' and match.group(2) == ';')):
+        error(filename, linenum, 'whitespace/operators', 3,
+              'Missing spaces around <<')
+
+    # We allow no-spaces around >> for almost anything.  This is because
+    # C++11 allows ">>" to close nested templates, which accounts for
+    # most cases when ">>" is not followed by a space.
+    #
+    # We still warn on ">>" followed by alpha character, because that is
+    # likely due to ">>" being used for right shifts, e.g.:
+    #   value >> alpha
+    #
+    # When ">>" is used to close templates, the alphanumeric letter that
+    # follows would be part of an identifier, and there should still be
+    # a space separating the template type and the identifier.
+    #   type<type<type>> alpha
+    match = Search(r'>>[a-zA-Z_]', line)
+    if match:
+        error(filename, linenum, 'whitespace/operators', 3,
+              'Missing spaces around >>')
+
+    # There shouldn't be space around unary operators
+    match = Search(r'(!\s|~\s|[\s]--[\s;]|[\s]\+\+[\s;])', line)
+    if match:
+        error(filename, linenum, 'whitespace/operators', 4,
+              'Extra space for operator %s' % match.group(1))
+
+
+def CheckParenthesisSpacing(filename, clean_lines, linenum, error):
+    """Checks for horizontal spacing around parentheses.
+
+    Args:
+      filename: The name of the current file.
+      clean_lines: A CleansedLines instance containing the file.
+      linenum: The number of the line to check.
+      error: The function to call with any errors found.
+    """
+    line = clean_lines.elided[linenum]
+
+    # No spaces after an if, while, switch, or for
+    match = Search(r' (if\(|for\(|while\(|switch\()', line)
+    if match:
+        error(filename, linenum, 'whitespace/parens', 5,
+              'Missing space before ( in %s' % match.group(1))
+
+    # For if/for/while/switch, the left and right parens should be
+    # consistent about how many spaces are inside the parens, and
+    # there should either be zero or one spaces inside the parens.
+    # We don't want: "if ( foo)" or "if ( foo   )".
+    # Exception: "for ( ; foo; bar)" and "for (foo; bar; )" are allowed.
+    match = Search(r'\b(if|for|while|switch)\s*'
+                   r'\(([ ]*)(.).*[^ ]+([ ]*)\)\s*{\s*$',
+                   line)
+    if match:
+        if len(match.group(2)) != len(match.group(4)):
+            if not (match.group(3) == ';' and
+                    len(match.group(2)) == 1 + len(match.group(4)) or
+                    not match.group(2) and Search(r'\bfor\s*\(.*; \)', line)):
+                error(filename, linenum, 'whitespace/parens', 5,
+                      'Mismatching spaces inside () in %s' % match.group(1))
+        if len(match.group(2)) not in [0, 1]:
+            error(filename, linenum, 'whitespace/parens', 5,
+                  'Should have zero or one spaces inside ( and ) in %s' %
+                  match.group(1))
+

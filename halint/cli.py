@@ -7,7 +7,10 @@ import sys
 from typing import Optional
 
 from .categories import _ERROR_CATEGORIES
-from .cpplint import Error, ProcessFileData
+from .cpplint import ProcessFileData
+from .error import (
+    Error
+)
 from .lintstate import LintState
 
 _USAGE = """

@@ -2,7 +2,10 @@ import sys
 from typing import Union
 
 import halint.cpplint as cpplint
-from halint.categories import _ERROR_CATEGORIES
+from halint.error import (
+    _ERROR_CATEGORIES,
+    _ShouldPrintError
+)
 from halint.lintstate import LintState
 
 
@@ -21,7 +24,7 @@ class ErrorCollector(object):
         self,
         state: LintState,
         unused_filename: str,
-        linenum: int,
+        line_num: int,
         category: str,
         confidence: int,
         message: str,
@@ -29,7 +32,7 @@ class ErrorCollector(object):
         if category not in self._ERROR_CATEGORIES:
             raise ValueError(f"Message {message} has category {category}, which is not in _ERROR_CATEGORIES")
         self._SEEN_ERROR_CATEGORIES[category] = 1
-        if cpplint._ShouldPrintError(state, category, confidence, linenum):
+        if _ShouldPrintError(state, category, confidence, line_num):
             self._errors.append("%s  [%s] [%d]" % (message, category, confidence))
 
     def Results(self) -> Union[str, list[str]]:

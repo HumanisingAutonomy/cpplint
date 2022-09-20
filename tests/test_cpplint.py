@@ -111,14 +111,6 @@ class TestCpplint(CpplintTestBase):
             r"^\s*#define\s*\w+\(",
         )
 
-    def testFindNextMultiLineCommentStart(self):
-        assert 1 == cpplint.FindNextMultiLineCommentStart([""], 0)
-
-        lines = ["a", "b", "/* c"]
-        assert 2 == cpplint.FindNextMultiLineCommentStart(lines, 0)
-
-        lines = ['char a[] = "/*";']  # not recognized as comment.
-        assert 1 == cpplint.FindNextMultiLineCommentStart(lines, 0)
 
     def testFindNextMultiLineCommentEnd(self):
         assert 1 == cpplint.FindNextMultiLineCommentEnd([""], 0)

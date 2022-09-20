@@ -49,42 +49,19 @@ _SEARCH_C_FILE = re.compile(r"\b(?:LINT_C_FILE|" r"vim?:\s*.*(\s*|:)filetype=c(\
 # Match string that indicates we're working on a Linux Kernel file.
 _SEARCH_KERNEL_FILE = re.compile(r"\b(?:LINT_KERNEL_FILE)")
 
-# These error categories are no longer enforced by cpplint, but for backwards-
-# compatibility they may still appear in NOLINT comments.
-_LEGACY_ERROR_CATEGORIES = [
-    "readability/streams",
-    "readability/function",
-]
-
-# These prefixes for categories should be ignored since they relate to other
-# tools which also use the NOLINT syntax, e.g. clang-tidy.
-_OTHER_NOLINT_CATEGORY_PREFIXES = [
-    "clang-analyzer",
-]
 
 
-# The default list of categories suppressed for C (not C++) files.
-_DEFAULT_C_SUPPRESSED_CATEGORIES = [
-    "readability/casting",
-]
-
-# The default list of categories suppressed for Linux Kernel files.
-_DEFAULT_KERNEL_SUPPRESSED_CATEGORIES = [
-    "whitespace/tab",
-]
-
-
-class _BlockInfo(object):
+class BlockInfo(object):
     """Stores information about a generic block of code."""
 
-    def __init__(self, linenum, seen_open_brace):
-        self.starting_linenum = linenum
+    def __init__(self, line_num, seen_open_brace):
+        self.starting_line_num = line_num
         self.seen_open_brace = seen_open_brace
         self.open_parentheses = 0
         self.inline_asm = _NO_ASM
         self.check_namespace_indentation = False
 
-    def CheckBegin(self, filename, clean_lines, linenum, error):
+    def check_begin(self, filename, clean_lines, line_num, error):
         """Run checks that applies to text up to the opening brace.
 
         This is mostly for checking the text after the class identifier
@@ -94,7 +71,7 @@ class _BlockInfo(object):
         Args:
           filename: The name of the current file.
           clean_lines: A CleansedLines instance containing the file.
-          linenum: The number of the line to check.
+          line_num: The number of the line to check.
           error: The function to call with any errors found.
         """
         pass
@@ -122,21 +99,21 @@ class _BlockInfo(object):
         Returns:
           True for this class, False for derived classes.
         """
-        return self.__class__ == _BlockInfo
+        return self.__class__ == BlockInfo
 
 
-class _ExternCInfo(_BlockInfo):
+class _ExternCInfo(BlockInfo):
     """Stores information about an 'extern "C"' block."""
 
-    def __init__(self, linenum):
-        _BlockInfo.__init__(self, linenum, True)
+    def __init__(self, line_num):
+        BlockInfo.__init__(self, line_num, True)
 
 
-class _ClassInfo(_BlockInfo):
+class _ClassInfo(BlockInfo):
     """Stores information about a class."""
 
-    def __init__(self, name, class_or_struct, clean_lines, linenum):
-        _BlockInfo.__init__(self, linenum, False)
+    def __init__(self, name, class_or_struct, clean_lines, line_num):
+        BlockInfo.__init__(self, line_num, False)
         self.name = name
         self.is_derived = False
         self.check_namespace_indentation = True
@@ -149,7 +126,7 @@ class _ClassInfo(_BlockInfo):
 
         # Remember initial indentation level for this class.  Using raw_lines here
         # instead of elided to account for leading comments.
-        self.class_indent = GetIndentLevel(clean_lines.raw_lines[linenum])
+        self.class_indent = GetIndentLevel(clean_lines.raw_lines[line_num])
 
         # Try to find the end of the class.  This will be confused by things like:
         #   class A {
@@ -158,23 +135,23 @@ class _ClassInfo(_BlockInfo):
         # But it's still good enough for CheckSectionSpacing.
         self.last_line = 0
         depth = 0
-        for i in range(linenum, clean_lines.NumLines()):
+        for i in range(line_num, clean_lines.NumLines()):
             line = clean_lines.elided[i]
             depth += line.count("{") - line.count("}")
             if not depth:
                 self.last_line = i
                 break
 
-    def CheckBegin(self, filename, clean_lines, linenum, error):
+    def check_begin(self, filename, clean_lines, line_num, error):
         # Look for a bare ':'
-        if Search("(^|[^:]):($|[^:])", clean_lines.elided[linenum]):
+        if Search("(^|[^:]):($|[^:])", clean_lines.elided[line_num]):
             self.is_derived = True
 
     def CheckEnd(self, state: LintState, filename, clean_lines, linenum, error):
         # If there is a DISALLOW macro, it should appear near the end of
         # the class.
         seen_last_thing_in_class = False
-        for i in range(linenum - 1, self.starting_linenum, -1):
+        for i in range(linenum - 1, self.starting_line_num, -1):
             match = Search(
                 r"\b(DISALLOW_COPY_AND_ASSIGN|DISALLOW_IMPLICIT_CONSTRUCTORS)\(" + self.name + r"\)",
                 clean_lines.elided[i],
@@ -213,11 +190,11 @@ class _ClassInfo(_BlockInfo):
             )
 
 
-class _NamespaceInfo(_BlockInfo):
+class _NamespaceInfo(BlockInfo):
     """Stores information about a namespace."""
 
-    def __init__(self, name, linenum):
-        _BlockInfo.__init__(self, linenum, False)
+    def __init__(self, name, line_num):
+        BlockInfo.__init__(self, line_num, False)
         self.name = name or ""
         self.check_namespace_indentation = True
 
@@ -236,7 +213,7 @@ class _NamespaceInfo(_BlockInfo):
         # other than forward declarations).  There is currently no logic on
         # deciding what these nontrivial things are, so this check is
         # triggered by namespace size only, which works most of the time.
-        if linenum - self.starting_linenum < 10 and not Match(r"^\s*};*\s*(//|/\*).*\bnamespace\b", line):
+        if linenum - self.starting_line_num < 10 and not Match(r"^\s*};*\s*(//|/\*).*\bnamespace\b", line):
             return
 
         # Look for matching comment at end of namespace.
@@ -595,88 +572,6 @@ def IsForwardClassDeclaration(clean_lines, linenum):
     return Match(r"^\s*(\btemplate\b)*.*class\s+\w+;\s*$", clean_lines[linenum])
 
 
-def ParseNolintSuppressions(state: LintState, filename, raw_line, linenum, error):
-    """Updates the global list of line error-suppressions.
-
-    Parses any NOLINT comments on the current line, updating the global
-    error_suppressions store.  Reports an error if the NOLINT comment
-    was malformed.
-
-    Args:
-      filename: str, the name of the input file.
-      raw_line: str, the line of input text, with comments.
-      linenum: int, the number of the current line.
-      error: function, an error handler.
-    """
-    matched = Search(r"\bNOLINT(NEXTLINE)?\b(\([^)]+\))?", raw_line)
-    if matched:
-        if matched.group(1):
-            suppressed_line = linenum + 1
-        else:
-            suppressed_line = linenum
-        category = matched.group(2)
-        if category in (None, "(*)"):  # => "suppress all"
-            state._error_suppressions.setdefault(None, set()).add(suppressed_line)
-        else:
-            if category.startswith("(") and category.endswith(")"):
-                category = category[1:-1]
-                if category in _ERROR_CATEGORIES:
-                    state._error_suppressions.setdefault(category, set()).add(suppressed_line)
-                elif any(c for c in _OTHER_NOLINT_CATEGORY_PREFIXES if category.startswith(c)):
-                    # Ignore any categories from other tools.
-                    pass
-                elif category not in _LEGACY_ERROR_CATEGORIES:
-                    error(
-                        filename,
-                        linenum,
-                        "readability/nolint",
-                        5,
-                        "Unknown NOLINT error category: %s" % category,
-                    )
-
-
-def ProcessGlobalSuppresions(state: LintState, lines):
-    """Updates the list of global error suppressions.
-
-    Parses any lint directives in the file that have global effect.
-
-    Args:
-      lines: An array of strings, each representing a line of the file, with the
-             last element being empty if the file is terminated with a newline.
-    """
-    for line in lines:
-        if _SEARCH_C_FILE.search(line):
-            for category in _DEFAULT_C_SUPPRESSED_CATEGORIES:
-                state._global_error_suppressions[category] = True
-        if _SEARCH_KERNEL_FILE.search(line):
-            for category in _DEFAULT_KERNEL_SUPPRESSED_CATEGORIES:
-                state._global_error_suppressions[category] = True
-
-
-def ResetNolintSuppressions(state: LintState):
-    """Resets the set of NOLINT suppressions to empty."""
-    state._error_suppressions.clear()
-    state._global_error_suppressions.clear()
-
-
-def IsErrorSuppressedByNolint(state: LintState, category, linenum):
-    """Returns true if the specified error category is suppressed on this line.
-
-    Consults the global error_suppressions map populated by
-    ParseNolintSuppressions/ProcessGlobalSuppresions/ResetNolintSuppressions.
-
-    Args:
-      category: str, the category of the error.
-      linenum: int, the current line number.
-    Returns:
-      bool, True iff the error should be suppressed due to a NOLINT comment or
-      global suppression.
-    """
-    return (
-        state._global_error_suppressions.get(category, False)
-        or linenum in state._error_suppressions.get(category, set())
-        or linenum in state._error_suppressions.get(None, set())
-    )
 
 
 def IsBlockInNameSpace(nesting_state, is_forward_declaration):
@@ -904,11 +799,11 @@ def _IsType(clean_lines, nesting_state, expr):
         #             ...>
         #   class C
         #     : public ... {  // start scanning here
-        last_line = nesting_state.stack[block_index].starting_linenum
+        last_line = nesting_state.stack[block_index].starting_line_num
 
         next_block_start = 0
         if block_index > 0:
-            next_block_start = nesting_state.stack[block_index - 1].starting_linenum
+            next_block_start = nesting_state.stack[block_index - 1].starting_line_num
         first_line = last_line
         while first_line >= next_block_start:
             if clean_lines.elided[first_line].find("template") >= 0:
@@ -979,8 +874,8 @@ def GetLineWidth(line):
 def CloseExpression(clean_lines, linenum, pos):
     """If input points to ( or { or [ or <, finds the position that closes it.
 
-    If lines[linenum][pos] points to a '(' or '{' or '[' or '<', finds the
-    linenum/pos that correspond to the closing of the expression.
+    If lines[line_num][pos] points to a '(' or '{' or '[' or '<', finds the
+    line_num/pos that correspond to the closing of the expression.
 
     TODO(unknown): cpplint spends a fair bit of time matching parentheses.
     Ideally we would want to index all opening and closing parentheses once
@@ -993,10 +888,10 @@ def CloseExpression(clean_lines, linenum, pos):
       pos: A position on the line.
 
     Returns:
-      A tuple (line, linenum, pos) pointer *past* the closing brace, or
+      A tuple (line, line_num, pos) pointer *past* the closing brace, or
       (line, len(lines), -1) if we never find a close.  Note we ignore
       strings and comments when matching; and the line we return is the
-      'cleansed' line at linenum.
+      'cleansed' line at line_num.
     """
 
     line = clean_lines.elided[linenum]
@@ -1023,8 +918,8 @@ def CloseExpression(clean_lines, linenum, pos):
 def ReverseCloseExpression(clean_lines, linenum, pos):
     """If input points to ) or } or ] or >, finds the position that opens it.
 
-    If lines[linenum][pos] points to a ')' or '}' or ']' or '>', finds the
-    linenum/pos that correspond to the opening of the expression.
+    If lines[line_num][pos] points to a ')' or '}' or ']' or '>', finds the
+    line_num/pos that correspond to the opening of the expression.
 
     Args:
       clean_lines: A CleansedLines instance containing the file.
@@ -1032,10 +927,10 @@ def ReverseCloseExpression(clean_lines, linenum, pos):
       pos: A position on the line.
 
     Returns:
-      A tuple (line, linenum, pos) pointer *at* the opening brace, or
+      A tuple (line, line_num, pos) pointer *at* the opening brace, or
       (line, 0, -1) if we never find the matching opening brace.  Note
       we ignore strings and comments when matching; and the line we
-      return is the 'cleansed' line at linenum.
+      return is the 'cleansed' line at line_num.
     """
     line = clean_lines.elided[linenum]
     if line[pos] not in ")}]>":
@@ -1517,7 +1412,7 @@ def ExpectingFunctionArgs(clean_lines, linenum):
       linenum: The number of the line to check.
 
     Returns:
-      True if the line at 'linenum' is inside something that expects arguments
+      True if the line at 'line_num' is inside something that expects arguments
       of function types.
     """
     line = clean_lines.elided[linenum]
@@ -1535,3 +1430,23 @@ def ExpectingFunctionArgs(clean_lines, linenum):
             or Search(r"\bstd::m?function\s*\<\s*$", clean_lines.elided[linenum - 1])
         )
     )
+
+
+def FindNextMultiLineCommentStart(lines: list[str], line_index: int):
+    """Find the beginning marker for a multiline comment."""
+    while line_index < len(lines):
+        if lines[line_index].strip().startswith("/*"):
+            # Only return this marker if the comment goes beyond this line
+            if lines[line_index].strip().find("*/", 2) < 0:
+                return line_index
+        line_index += 1
+    return len(lines)
+
+
+def FindNextMultiLineCommentEnd(lines: list[str], line_index: int):
+    """We are inside a comment, find the end marker."""
+    while line_index < len(lines):
+        if lines[line_index].strip().endswith("*/"):
+            return line_index
+        line_index += 1
+    return len(lines)

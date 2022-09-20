@@ -7,7 +7,7 @@ from .block_info import (
     _MATCH_ASM,
     _NO_ASM,
     CloseExpression,
-    _BlockInfo,
+    BlockInfo,
     _ClassInfo,
     _ExternCInfo,
     _NamespaceInfo,
@@ -94,7 +94,7 @@ class NestingState(object):
           linenum: The number of the line to check.
           pos: position just after the suspected template argument.
         Returns:
-          True if (linenum, pos) is inside template arguments.
+          True if (line_num, pos) is inside template arguments.
         """
         while linenum < clean_lines.NumLines():
             # Find the earliest character that might indicate a template argument
@@ -304,7 +304,7 @@ class NestingState(object):
         # If we have not yet seen the opening brace for the innermost block,
         # run checks here.
         if not self.SeenOpenBrace():
-            self.stack[-1].CheckBegin(filename, clean_lines, linenum, error)
+            self.stack[-1].check_begin(filename, clean_lines, linenum, error)
 
         # Update access control if we are inside a class/struct
         if self.stack and isinstance(self.stack[-1], _ClassInfo):
@@ -353,7 +353,7 @@ class NestingState(object):
                 elif Match(r'^extern\s*"[^"]*"\s*\{', line):
                     self.stack.append(_ExternCInfo(linenum))
                 else:
-                    self.stack.append(_BlockInfo(linenum, True))
+                    self.stack.append(BlockInfo(linenum, True))
                     if _MATCH_ASM.match(line):
                         self.stack[-1].inline_asm = _BLOCK_ASM
 
@@ -403,7 +403,7 @@ class NestingState(object):
                 error(
                     state,
                     filename,
-                    obj.starting_linenum,
+                    obj.starting_line_num,
                     "build/class",
                     5,
                     "Failed to find complete declaration of class %s" % obj.name,
@@ -412,7 +412,7 @@ class NestingState(object):
                 error(
                     state,
                     filename,
-                    obj.starting_linenum,
+                    obj.starting_line_num,
                     "build/namespaces",
                     5,
                     "Failed to find complete declaration of namespace %s" % obj.name,

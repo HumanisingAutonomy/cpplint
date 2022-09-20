@@ -12,9 +12,11 @@ from .block_info import (
     GetLineWidth,
     GetPreviousNonBlankLine,
     IsBlankLine,
-    ParseNolintSuppressions,
     ReverseCloseExpression,
     _IsType,
+)
+from .error import (
+    ParseNolintSuppressions
 )
 from .cleansed_lines import CleanseComments, CleansedLines
 from .lintstate import LintState
@@ -1587,7 +1589,7 @@ def CheckSectionSpacing(state, filename, clean_lines, class_info, linenum, error
     #
     # If we didn't find the end of the class, last_line would be zero,
     # and the check will be skipped by the first condition.
-    if class_info.last_line - class_info.starting_linenum <= 24 or linenum <= class_info.starting_linenum:
+    if class_info.last_line - class_info.starting_line_num <= 24 or linenum <= class_info.starting_line_num:
         return
 
     matched = Match(r"\s*(public|protected|private):", clean_lines.lines[linenum])
@@ -1610,8 +1612,8 @@ def CheckSectionSpacing(state, filename, clean_lines, class_info, linenum, error
             # account for multi-line base-specifier lists, e.g.:
             #   class Derived
             #       : public Base {
-            end_class_head = class_info.starting_linenum
-            for i in range(class_info.starting_linenum, linenum):
+            end_class_head = class_info.starting_line_num
+            for i in range(class_info.starting_line_num, linenum):
                 if Search(r"\{\s*$", clean_lines.lines[i]):
                     end_class_head = i
                     break

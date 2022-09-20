@@ -4,10 +4,9 @@ from .regex import Match, Search
 
 _RE_PATTERN_INCLUDE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]*)[>"].*$')
 # Matches standard C++ escape sequences per 2.13.2.3 of the C++ standard.
-_RE_PATTERN_CLEANSE_LINE_ESCAPES = re.compile(
-    r'\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)')
+_RE_PATTERN_CLEANSE_LINE_ESCAPES = re.compile(r'\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)')
 # Match a single C style comment on the same line.
-_RE_PATTERN_C_COMMENTS = r'/\*(?:[^*]|\*(?!/))*\*/'
+_RE_PATTERN_C_COMMENTS = r"/\*(?:[^*]|\*(?!/))*\*/"
 # Matches multi-line C style comments.
 # This RE is a little bit more complicated than one might expect, because we
 # have to take care of space removals tools so we can handle comments inside
@@ -17,10 +16,18 @@ _RE_PATTERN_C_COMMENTS = r'/\*(?:[^*]|\*(?!/))*\*/'
 # if this doesn't work we try on left side but only if there's a non-character
 # on the right.
 _RE_PATTERN_CLEANSE_LINE_C_COMMENTS = re.compile(
-    r'(\s*' + _RE_PATTERN_C_COMMENTS + r'\s*$|' +
-    _RE_PATTERN_C_COMMENTS + r'\s+|' +
-    r'\s+' + _RE_PATTERN_C_COMMENTS + r'(?=\W)|' +
-    _RE_PATTERN_C_COMMENTS + r')')
+    r"(\s*"
+    + _RE_PATTERN_C_COMMENTS
+    + r"\s*$|"
+    + _RE_PATTERN_C_COMMENTS
+    + r"\s+|"
+    + r"\s+"
+    + _RE_PATTERN_C_COMMENTS
+    + r"(?=\W)|"
+    + _RE_PATTERN_C_COMMENTS
+    + r")"
+)
+
 
 class CleansedLines(object):
     """Holds 4 copies of all lines with different preprocessing applied to them.
@@ -41,8 +48,7 @@ class CleansedLines(object):
         self.lines_without_raw_strings = CleanseRawStrings(lines)
         # # pylint: disable=consider-using-enumerate
         for linenum in range(len(self.lines_without_raw_strings)):
-            self.lines.append(CleanseComments(
-                self.lines_without_raw_strings[linenum]))
+            self.lines.append(CleanseComments(self.lines_without_raw_strings[linenum]))
             elided = self._CollapseStrings(self.lines_without_raw_strings[linenum])
             self.elided.append(CleanseComments(elided))
 
@@ -68,12 +74,12 @@ class CleansedLines(object):
         # Remove escaped characters first to make quote/single quote collapsing
         # basic.  Things that look like escaped characters shouldn't occur
         # outside of strings and chars.
-        elided = _RE_PATTERN_CLEANSE_LINE_ESCAPES.sub('', elided)
+        elided = _RE_PATTERN_CLEANSE_LINE_ESCAPES.sub("", elided)
 
         # Replace quoted strings and digit separators.  Both single quotes
         # and double quotes are processed in the same loop, otherwise
         # nested quotes wouldn't work.
-        collapsed = ''
+        collapsed = ""
         while True:
             # Find the first quote character
             match = Match(r'^([^\'"]*)([\'"])(.*)$', elided)
@@ -87,7 +93,7 @@ class CleansedLines(object):
                 second_quote = tail.find('"')
                 if second_quote >= 0:
                     collapsed += head + '""'
-                    elided = tail[second_quote + 1:]
+                    elided = tail[second_quote + 1 :]
                 else:
                     # Unmatched double quote, don't bother processing the rest
                     # of the line since this is probably a multiline string.
@@ -101,15 +107,15 @@ class CleansedLines(object):
                 # correctly as int as there are digits on both sides of the
                 # separator.  So we are fine as int as we don't see something
                 # like "0.'3" (gcc 4.9.0 will not allow this literal).
-                if Search(r'\b(?:0[bBxX]?|[1-9])[0-9a-fA-F]*$', head):
-                    match_literal = Match(r'^((?:\'?[0-9a-zA-Z_])*)(.*)$', "'" + tail)
-                    collapsed += head + match_literal.group(1).replace("'", '')
+                if Search(r"\b(?:0[bBxX]?|[1-9])[0-9a-fA-F]*$", head):
+                    match_literal = Match(r"^((?:\'?[0-9a-zA-Z_])*)(.*)$", "'" + tail)
+                    collapsed += head + match_literal.group(1).replace("'", "")
                     elided = match_literal.group(2)
                 else:
-                    second_quote = tail.find('\'')
+                    second_quote = tail.find("'")
                     if second_quote >= 0:
                         collapsed += head + "''"
-                        elided = tail[second_quote + 1:]
+                        elided = tail[second_quote + 1 :]
                     else:
                         # Unmatched single quote
                         collapsed += elided
@@ -127,11 +133,11 @@ def CleanseComments(line):
     Returns:
       The line with single-line comments removed.
     """
-    commentpos = line.find('//')
+    commentpos = line.find("//")
     if commentpos != -1 and not IsCppString(line[:commentpos]):
         line = line[:commentpos].rstrip()
     # get rid of /* ... */
-    return _RE_PATTERN_CLEANSE_LINE_C_COMMENTS.sub('', line)
+    return _RE_PATTERN_CLEANSE_LINE_C_COMMENTS.sub("", line)
 
 
 def CleanseRawStrings(raw_lines):
@@ -164,8 +170,8 @@ def CleanseRawStrings(raw_lines):
                 # Found the end of the string, match leading space for this
                 # line and resume copying the original lines, and also insert
                 # a "" on the last line.
-                leading_space = Match(r'^(\s*)\S', line)
-                line = leading_space.group(1) + '""' + line[end + len(delimiter):]
+                leading_space = Match(r"^(\s*)\S", line)
+                line = leading_space.group(1) + '""' + line[end + len(delimiter) :]
                 delimiter = None
             else:
                 # Haven't found the end yet, append a blank line.
@@ -186,16 +192,13 @@ def CleanseRawStrings(raw_lines):
             # cpplint checks that requires the comments to be preserved, but
             # we don't want to check comments that are inside raw strings.
             matched = Match(r'^(.*?)\b(?:R|u8R|uR|UR|LR)"([^\s\\()]*)\((.*)$', line)
-            if (matched and
-                not Match(r'^([^\'"]|\'(\\.|[^\'])*\'|"(\\.|[^"])*")*//',
-                          matched.group(1))):
-                delimiter = ')' + matched.group(2) + '"'
+            if matched and not Match(r'^([^\'"]|\'(\\.|[^\'])*\'|"(\\.|[^"])*")*//', matched.group(1)):
+                delimiter = ")" + matched.group(2) + '"'
 
                 end = matched.group(3).find(delimiter)
                 if end >= 0:
                     # Raw string ended on same line
-                    line = (matched.group(1) + '""' +
-                            matched.group(3)[end + len(delimiter):])
+                    line = matched.group(1) + '""' + matched.group(3)[end + len(delimiter) :]
                     delimiter = None
                 else:
                     # Start of a multi-line raw string
@@ -208,6 +211,7 @@ def CleanseRawStrings(raw_lines):
     # TODO(unknown): if delimiter is not None here, we might want to
     # emit a warning for unterminated string.
     return lines_without_raw_strings
+
 
 def IsCppString(line):
     """Does line terminate so, that the next symbol is in string constant.
@@ -222,5 +226,5 @@ def IsCppString(line):
       string constant.
     """
 
-    line = line.replace(r'\\', 'XX')  # after this, \\" does not match to \"
-    return ((line.count('"') - line.count(r'\"') - line.count("'\"'")) & 1) == 1
+    line = line.replace(r"\\", "XX")  # after this, \\" does not match to \"
+    return ((line.count('"') - line.count(r"\"") - line.count("'\"'")) & 1) == 1

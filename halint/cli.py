@@ -1,13 +1,14 @@
 import codecs
 import getopt
 import glob
-import re
 import os
+import re
 import sys
+from typing import Optional
 
-from ._cpplintstate import _CppLintState
 from .categories import _ERROR_CATEGORIES
-from .cpplint import ProcessFileData, Error
+from .cpplint import Error, ProcessFileData
+from .lintstate import LintState
 
 _USAGE = """
 Syntax: cpplint.py [--verbose=#] [--output=emacs|eclipse|vs7|junit|sed|gsed]
@@ -219,11 +220,13 @@ Syntax: cpplint.py [--verbose=#] [--output=emacs|eclipse|vs7|junit|sed|gsed]
     file is located) and all sub-directories.
 """
 
+
 def process_hpp_headers_option(state, val):
     try:
-        state._hpp_headers = {ext.strip() for ext in val.split(',')}
+        state._hpp_headers = {ext.strip() for ext in val.split(",")}
     except ValueError:
-        print_usage('Header extensions must be comma separated list.')
+        print_usage("Header extensions must be comma separated list.")
+
 
 def process_include_order_option(state, val):
     if val is None or val == "default":
@@ -231,61 +234,73 @@ def process_include_order_option(state, val):
     elif val == "standardcfirst":
         state._include_order = val
     else:
-        print_usage('Invalid includeorder value %s. Expected default|standardcfirst')
+        print_usage("Invalid includeorder value %s. Expected default|standardcfirst")
 
-def process_extensions_option(state: _CppLintState, val):
+
+def process_extensions_option(state: LintState, val):
     try:
-        extensions = [ext.strip() for ext in val.split(',')]
+        extensions = [ext.strip() for ext in val.split(",")]
         state._valid_extensions = set(extensions)
     except ValueError:
-        print_usage('Extensions should be a comma-separated list of values;'
-                   'for example: extensions=hpp,cpp\n'
-                   'This could not be parsed: "%s"' % (val,))
+        print_usage(
+            "Extensions should be a comma-separated list of values;"
+            "for example: extensions=hpp,cpp\n"
+            'This could not be parsed: "%s"' % (val,)
+        )
 
-def print_usage(state: _CppLintState, message):
+
+def print_usage(state: LintState, message: Optional[str] = None):
     """Prints a brief usage string and exits, optionally with an error message.
 
     Args:
       message: The optional error message.
     """
-    sys.stderr.write(_USAGE  % (sorted(list(state.GetAllExtensions())),
-         ','.join(sorted(list(state.GetAllExtensions()))),
-         sorted(state.GetHeaderExtensions()),
-         ','.join(sorted(state.GetHeaderExtensions()))))
+    sys.stderr.write(
+        _USAGE
+        % (
+            sorted(list(state.GetAllExtensions())),
+            ",".join(sorted(list(state.GetAllExtensions()))),
+            sorted(state.GetHeaderExtensions()),
+            ",".join(sorted(state.GetHeaderExtensions())),
+        )
+    )
 
-    if message:
-        sys.exit('\nFATAL ERROR: ' + message)
+    if message is not None:
+        sys.exit("\nFATAL ERROR: " + message)
     else:
         sys.exit(0)
 
+
 def print_version():
-    sys.stdout.write('Cpplint fork (https://github.com/cpplint/cpplint)\n')
+    sys.stdout.write("Cpplint fork (https://github.com/cpplint/cpplint)\n")
     # TODO: fix printing version number
-    sys.stdout.write('cpplint ' + "FIXME" + '\n')
-    sys.stdout.write('Python ' + sys.version + '\n')
+    sys.stdout.write("cpplint " + "FIXME" + "\n")
+    sys.stdout.write("Python " + sys.version + "\n")
     sys.exit(0)
+
 
 def print_categories():
     """Prints a list of all the error-categories used by error messages.
 
     These are the categories used to filter messages via --filter.
     """
-    sys.stderr.write(''.join('  %s\n' % cat for cat in _ERROR_CATEGORIES))
+    sys.stderr.write("".join("  %s\n" % cat for cat in _ERROR_CATEGORIES))
     sys.exit(0)
+
 
 def parse_filters(filter_string: str) -> list[str]:
     """Takes a comma separated list of filters and returns a list of filters"""
     filters = []
 
-    for filter in filter_string.split(','):
+    for filter in filter_string.split(","):
         clean_filter = filter.strip()
         if clean_filter:
             filters.append(clean_filter)
     for filter in filters:
-        if not (filter.startswith('+') or filter.startswith('-')):
-            raise ValueError('Every filter in --filters must start with + or -'
-                                ' (%s does not)' % filter)
+        if not (filter.startswith("+") or filter.startswith("-")):
+            raise ValueError("Every filter in --filters must start with + or -" " (%s does not)" % filter)
     return filters
+
 
 def _is_parent_or_same(parent, child):
     """Return true if child is subdirectory of parent.
@@ -301,11 +316,12 @@ def _is_parent_or_same(parent, child):
         return False
     # Note: os.path.commonprefix operates on character basis, so
     # take extra care of situations like '/foo/ba' and '/foo/bar/baz'
-    child_suffix = child[len(prefix):]
+    child_suffix = child[len(prefix) :]
     child_suffix = child_suffix.lstrip(os.sep)
     return child == os.path.join(prefix, child_suffix)
 
-def parse_arguments(state: _CppLintState, args):
+
+def parse_arguments(state: LintState, args):
     """Parses the command line arguments.
 
     This may set the output format and verbosity level as side-effects.
@@ -317,28 +333,36 @@ def parse_arguments(state: _CppLintState, args):
       The list of filenames to lint.
     """
     try:
-        (opts, filenames) = getopt.getopt(args, '', ['help', 'output=', 'verbose=',
-                                                     'v=',
-                                                     'version',
-                                                     'counting=',
-                                                     'filter=',
-                                                     'root=',
-                                                     'repository=',
-                                                     'linelength=',
-                                                     'extensions=',
-                                                     'exclude=',
-                                                     'recursive',
-                                                     'headers=',
-                                                     'includeorder=',
-                                                     'quiet'])
+        (opts, filenames) = getopt.getopt(
+            args,
+            "",
+            [
+                "help",
+                "output=",
+                "verbose=",
+                "v=",
+                "version",
+                "counting=",
+                "filter=",
+                "root=",
+                "repository=",
+                "linelength=",
+                "extensions=",
+                "exclude=",
+                "recursive",
+                "headers=",
+                "includeorder=",
+                "quiet",
+            ],
+        )
     except getopt.GetoptError:
-        print_usage(state, 'Invalid arguments.')
+        print_usage(state, "Invalid arguments.")
 
     verbosity = state.verbose_level
     output_format = state.output_format
-    filters = ''
+    filters = ""
     quiet = state.quiet
-    counting_style = ''
+    counting_style = ""
     recursive = False
     root = state._root
     repository = state._repository
@@ -346,60 +370,61 @@ def parse_arguments(state: _CppLintState, args):
     line_length = 80
 
     for (opt, val) in opts:
-        if opt == '--help':
+        if opt == "--help":
             print_usage(state, None)
-        if opt == '--version':
+        if opt == "--version":
             print_version()
-        elif opt == '--output':
-            if val not in ('emacs', 'vs7', 'eclipse', 'junit', 'sed', 'gsed'):
-                print_usage(state, 'The only allowed output formats are emacs, vs7, eclipse '
-                           'sed, gsed and junit.')
+        elif opt == "--output":
+            if val not in ("emacs", "vs7", "eclipse", "junit", "sed", "gsed"):
+                print_usage(
+                    state,
+                    "The only allowed output formats are emacs, vs7, eclipse " "sed, gsed and junit.",
+                )
             output_format = val
-        elif opt == '--quiet':
+        elif opt == "--quiet":
             quiet = True
-        elif opt == '--verbose' or opt == '--v':
+        elif opt == "--verbose" or opt == "--v":
             verbosity = int(val)
-        elif opt == '--filter':
+        elif opt == "--filter":
             filters = val
             if not filters:
                 print_categories()
-        elif opt == '--counting':
-            if val not in ('total', 'toplevel', 'detailed'):
-                print_usage(state, 'Valid counting options are total, toplevel, and detailed')
+        elif opt == "--counting":
+            if val not in ("total", "toplevel", "detailed"):
+                print_usage(state, "Valid counting options are total, toplevel, and detailed")
             counting_style = val
-        elif opt == '--root':
+        elif opt == "--root":
             root = val
-        elif opt == '--repository':
+        elif opt == "--repository":
             repository = val
-        elif opt == '--linelength':
+        elif opt == "--linelength":
             try:
                 line_length = int(val)
             except ValueError:
-                print_usage(state, 'Line length must be digits.')
-        elif opt == '--exclude':
+                print_usage(state, "Line length must be digits.")
+        elif opt == "--exclude":
             excludes = set()
             excludes.update(glob.glob(val))
-        elif opt == '--extensions':
+        elif opt == "--extensions":
             process_extensions_option(state, val)
-        elif opt == '--headers':
+        elif opt == "--headers":
             process_hpp_headers_option(state, val)
-        elif opt == '--recursive':
+        elif opt == "--recursive":
             recursive = True
-        elif opt == '--includeorder':
+        elif opt == "--includeorder":
             process_include_order_option(state, val)
 
     if excludes:
         state._excludes.update(excludes)
 
     if not filenames:
-        print_usage(state, 'No files were specified.')
+        print_usage(state, "No files were specified.")
 
     if recursive:
         filenames = _expand_directories(state, filenames)
 
     if len(state._excludes) > 0:
         filenames = _filter_excluded_files(state, filenames)
-
 
     state.output_format = output_format
     state.quiet = quiet
@@ -412,6 +437,7 @@ def parse_arguments(state: _CppLintState, args):
 
     filenames.sort()
     return filenames
+
 
 def _expand_directories(state, filenames):
     """Searches a list of filenames and replaces directories in the list with
@@ -434,8 +460,8 @@ def _expand_directories(state, filenames):
         for root, _, files in os.walk(filename):
             for loopfile in files:
                 fullname = os.path.join(root, loopfile)
-                if fullname.startswith('.' + os.path.sep):
-                    fullname = fullname[len('.' + os.path.sep):]
+                if fullname.startswith("." + os.path.sep):
+                    fullname = fullname[len("." + os.path.sep) :]
                 expanded.add(fullname)
 
     filtered = []
@@ -444,17 +470,17 @@ def _expand_directories(state, filenames):
             filtered.append(filename)
     return filtered
 
+
 def _filter_excluded_files(state, fnames):
     """Filters out files listed in the --exclude command line switch. File paths
     in the switch are evaluated relative to the current working directory
     """
     exclude_paths = [os.path.abspath(f) for f in state._excludes]
     # because globbing does not work recursively, exclude all subpath of all excluded entries
-    return [f for f in fnames
-            if not any(e for e in exclude_paths
-                    if _is_parent_or_same(e, os.path.abspath(f)))]
+    return [f for f in fnames if not any(e for e in exclude_paths if _is_parent_or_same(e, os.path.abspath(f)))]
 
-def process_file(state: _CppLintState, filename, vlevel, extra_check_functions=None):
+
+def process_file(state: LintState, filename, vlevel, extra_check_functions=None):
     """Does google-lint on a single file.
 
     Args:
@@ -486,41 +512,46 @@ def process_file(state: _CppLintState, filename, vlevel, extra_check_functions=N
         # has CRLF endings.
         # If after the split a trailing '\r' is present, it is removed
         # below.
-        if filename == '-':
-            lines = codecs.StreamReaderWriter(sys.stdin,
-                                              codecs.getreader('utf8'),
-                                              codecs.getwriter('utf8'),
-                                              'replace').read().split('\n')
+        if filename == "-":
+            lines = (
+                codecs.StreamReaderWriter(
+                    sys.stdin,
+                    codecs.getreader("utf8"),
+                    codecs.getwriter("utf8"),
+                    "replace",
+                )
+                .read()
+                .split("\n")
+            )
         else:
-            with codecs.open(filename, 'r', 'utf8', 'replace') as target_file:
-                lines = target_file.read().split('\n')
+            with codecs.open(filename, "r", "utf8", "replace") as target_file:
+                lines = target_file.read().split("\n")
 
         # Remove trailing '\r'.
         # The -1 accounts for the extra trailing blank line we get from split()
         for linenum in range(len(lines) - 1):
-            if lines[linenum].endswith('\r'):
-                lines[linenum] = lines[linenum].rstrip('\r')
+            if lines[linenum].endswith("\r"):
+                lines[linenum] = lines[linenum].rstrip("\r")
                 crlf_lines.append(linenum + 1)
             else:
                 lf_lines.append(linenum + 1)
 
     except IOError:
-        state.PrintError(
-            "Skipping input '%s': Can't open for reading\n" % filename)
+        state.PrintError("Skipping input '%s': Can't open for reading\n" % filename)
         state.restore_filters()
         return
 
     # Note, if no dot is found, this will give the entire filename as the ext.
-    file_extension = filename[filename.rfind('.') + 1:]
+    file_extension = filename[filename.rfind(".") + 1 :]
 
     # When reading from stdin, the extension is unknown, so no cpplint tests
     # should rely on the extension.
-    if filename != '-' and file_extension not in state.GetAllExtensions():
-        state.PrintError('Ignoring %s; not a valid file name '
-                         '(%s)\n' % (filename, ', '.join(state.GetAllExtensions())))
+    if filename != "-" and file_extension not in state.GetAllExtensions():
+        state.PrintError(
+            "Ignoring %s; not a valid file name " "(%s)\n" % (filename, ", ".join(state.GetAllExtensions()))
+        )
     else:
-        ProcessFileData(state, filename, file_extension, lines, Error,
-                        extra_check_functions)
+        ProcessFileData(state, filename, file_extension, lines, Error, extra_check_functions)
 
         # If end-of-line sequences are a mix of LF and CR-LF, issue
         # warnings on the lines with CR.
@@ -537,17 +568,24 @@ def process_file(state: _CppLintState, filename, vlevel, extra_check_functions=N
             # check whether the file is mostly CRLF or just LF, and warn on the
             # minority, we bias toward LF here since most tools prefer LF.
             for linenum in crlf_lines:
-                Error(state, filename, linenum, 'whitespace/newline', 1,
-                      'Unexpected \\r (^M) found; better to use only \\n')
+                Error(
+                    state,
+                    filename,
+                    linenum,
+                    "whitespace/newline",
+                    1,
+                    "Unexpected \\r (^M) found; better to use only \\n",
+                )
 
     # Suppress printing anything if --quiet was passed unless the error
     # count has increased after processing this file.
     if not state.quiet or old_errors != state.error_count:
-        state.PrintInfo('Done processing %s\n' % filename)
+        state.PrintInfo("Done processing %s\n" % filename)
     state.restore_filters()
 
+
 def ProcessConfigOverrides(state, filename):
-    """ Loads the configuration files and processes the config overrides.
+    """Loads the configuration files and processes the config overrides.
 
     Args:
       filename: The name of the file being processed by the linter.
@@ -570,20 +608,20 @@ def ProcessConfigOverrides(state, filename):
             continue
 
         try:
-            with codecs.open(cfg_file, 'r', 'utf8', 'replace') as file_handle:
+            with codecs.open(cfg_file, "r", "utf8", "replace") as file_handle:
                 for line in file_handle:
-                    line, _, _ = line.partition('#')  # Remove comments.
+                    line, _, _ = line.partition("#")  # Remove comments.
                     if not line.strip():
                         continue
 
-                    name, _, val = line.partition('=')
+                    name, _, val = line.partition("=")
                     name = name.strip()
                     val = val.strip()
-                    if name == 'set noparent':
+                    if name == "set noparent":
                         keep_looking = False
-                    elif name == 'filter':
+                    elif name == "filter":
                         cfg_filters.append(val)
-                    elif name == 'exclude_files':
+                    elif name == "exclude_files":
                         # When matching exclude_files pattern, use the base_name of
                         # the current file name or the directory name we are processing.
                         # For example, if we are checking for lint errors in /foo/bar/baz.cc
@@ -596,35 +634,33 @@ def ProcessConfigOverrides(state, filename):
                                 if state.quiet:
                                     # Suppress "Ignoring file" warning when using --quiet.
                                     return False
-                                state.PrintInfo('Ignoring "%s": file excluded by "%s". '
-                                                 'File path component "%s" matches '
-                                                 'pattern "%s"\n' %
-                                                 (filename, cfg_file, base_name, val))
+                                state.PrintInfo(
+                                    'Ignoring "%s": file excluded by "%s". '
+                                    'File path component "%s" matches '
+                                    'pattern "%s"\n' % (filename, cfg_file, base_name, val)
+                                )
                                 return False
-                    elif name == 'linelength':
+                    elif name == "linelength":
                         global _line_length
                         try:
                             _line_length = int(val)
                         except ValueError:
-                            state.PrintError('Line length must be numeric.')
-                    elif name == 'extensions':
+                            state.PrintError("Line length must be numeric.")
+                    elif name == "extensions":
                         process_extensions_option(state, val)
-                    elif name == 'root':
+                    elif name == "root":
                         global _root
                         # root directories are specified relative to CPPLINT.cfg dir.
                         _root = os.path.join(os.path.dirname(cfg_file), val)
-                    elif name == 'headers':
+                    elif name == "headers":
                         process_hpp_headers_option(state, val)
-                    elif name == 'includeorder':
+                    elif name == "includeorder":
                         process_include_order_option(state, val)
                     else:
-                        state.PrintError(
-                            'Invalid configuration option (%s) in file %s\n' %
-                            (name, cfg_file))
+                        state.PrintError("Invalid configuration option (%s) in file %s\n" % (name, cfg_file))
 
         except IOError:
-            state.PrintError(
-                "Skipping config file '%s': Can't open for reading\n" % cfg_file)
+            state.PrintError("Skipping config file '%s': Can't open for reading\n" % cfg_file)
             keep_looking = False
 
     # Apply all the accumulated filters in reverse order (top-level directory

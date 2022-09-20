@@ -8,7 +8,7 @@ requires = [
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "hal"
+name = "halint"
 version = "0.0.1"
 description = "Humanizing Autonomy Linting Tool"
 license = "Proprietory"
@@ -41,9 +41,12 @@ pyparsing = "^3.0.9"
 zipp = "^3.8.1"
 configparser = "^5.3.0"
 testfixtures = "^7.0.0"
+flake8-pylint = "^0.1.3"
+flake8-black = "^0.3.3"
+autopep8 = "^1.7.0"
 
 [tool.poetry.scripts]
-pylint="main:main"
+cpplint="main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "halint"]
@@ -66,6 +69,9 @@ line_length = 120
 multi_line_output = 3
 include_trailing_comma = true
 known_third_party = "celery,django,environ,pyquery,pytz,redis,requests,rest_framework"
+
+[tool.black]
+line-length = 120
 
 [mypy]
 # follow and type check all modules, including third-party ones

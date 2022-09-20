@@ -1,13 +1,21 @@
 import copy
 
 from .block_info import (
-    _BlockInfo, _NamespaceInfo, _ExternCInfo, _ClassInfo, _PreprocessorInfo,
-    _NO_ASM, _END_ASM, _MATCH_ASM, _INSIDE_ASM, _BLOCK_ASM,
+    _BLOCK_ASM,
+    _END_ASM,
+    _INSIDE_ASM,
+    _MATCH_ASM,
+    _NO_ASM,
     CloseExpression,
+    _BlockInfo,
+    _ClassInfo,
+    _ExternCInfo,
+    _NamespaceInfo,
+    _PreprocessorInfo,
 )
-from .cpplint import _CppLintState
-from .error import ErrorLogger
 from .cleansed_lines import CleansedLines
+from .lintstate import LintState
+from .error import ErrorLogger
 from .regex import Match
 
 
@@ -91,7 +99,7 @@ class NestingState(object):
         while linenum < clean_lines.NumLines():
             # Find the earliest character that might indicate a template argument
             line = clean_lines.elided[linenum]
-            match = Match(r'^[^{};=\[\]\.<>]*(.)', line[pos:])
+            match = Match(r"^[^{};=\[\]\.<>]*(.)", line[pos:])
             if not match:
                 linenum += 1
                 pos = 0
@@ -102,18 +110,20 @@ class NestingState(object):
             # These things do not look like template argument list:
             #   class Suspect {
             #   class Suspect x; }
-            if token in ('{', '}', ';'): return False
+            if token in ("{", "}", ";"):
+                return False
 
             # These things look like template argument list:
             #   template <class Suspect>
             #   template <class Suspect = default_value>
             #   template <class Suspect[]>
             #   template <class Suspect...>
-            if token in ('>', '=', '[', ']', '.'): return True
+            if token in (">", "=", "[", "]", "."):
+                return True
 
             # Check if token is an unmatched '<'.
             # If not, move on to the next character.
-            if token != '<':
+            if token != "<":
                 pos += 1
                 if pos >= len(line):
                     linenum += 1
@@ -151,11 +161,11 @@ class NestingState(object):
         Args:
           line: current line to check.
         """
-        if Match(r'^\s*#\s*(if|ifdef|ifndef)\b', line):
+        if Match(r"^\s*#\s*(if|ifdef|ifndef)\b", line):
             # Beginning of #if block, save the nesting stack here.  The saved
             # stack will allow us to restore the parsing state in the #else case.
             self.pp_stack.append(_PreprocessorInfo(copy.deepcopy(self.stack)))
-        elif Match(r'^\s*#\s*(else|elif)\b', line):
+        elif Match(r"^\s*#\s*(else|elif)\b", line):
             # Beginning of #else block
             if self.pp_stack:
                 if not self.pp_stack[-1].seen_else:
@@ -170,7 +180,7 @@ class NestingState(object):
             else:
                 # TODO(unknown): unexpected #else, issue warning?
                 pass
-        elif Match(r'^\s*#\s*endif\b', line):
+        elif Match(r"^\s*#\s*endif\b", line):
             # End of #if or #else blocks.
             if self.pp_stack:
                 # If we saw an #else, we will need to restore the nesting
@@ -187,7 +197,14 @@ class NestingState(object):
                 pass
 
     # TODO(unknown): Update() is too long, but we will refactor later.
-    def Update(self, state: _CppLintState, filename: str, clean_lines: CleansedLines, linenum: int, error: ErrorLogger):
+    def Update(
+        self,
+        state: LintState,
+        filename: str,
+        clean_lines: CleansedLines,
+        linenum: int,
+        error: ErrorLogger,
+    ):
         """Update nesting state with current line.
 
         Args:
@@ -215,22 +232,19 @@ class NestingState(object):
         # the nesting stack.
         if self.stack:
             inner_block = self.stack[-1]
-            depth_change = line.count('(') - line.count(')')
+            depth_change = line.count("(") - line.count(")")
             inner_block.open_parentheses += depth_change
 
             # Also check if we are starting or ending an inline assembly block.
             if inner_block.inline_asm in (_NO_ASM, _END_ASM):
-                if (depth_change != 0 and
-                    inner_block.open_parentheses == 1 and
-                    _MATCH_ASM.match(line)):
+                if depth_change != 0 and inner_block.open_parentheses == 1 and _MATCH_ASM.match(line):
                     # Enter assembly block
                     inner_block.inline_asm = _INSIDE_ASM
                 else:
                     # Not entering assembly block.  If previous line was _END_ASM,
                     # we will now shift to _NO_ASM state.
                     inner_block.inline_asm = _NO_ASM
-            elif (inner_block.inline_asm == _INSIDE_ASM and
-                  inner_block.open_parentheses == 0):
+            elif inner_block.inline_asm == _INSIDE_ASM and inner_block.open_parentheses == 0:
                 # Exit assembly block
                 inner_block.inline_asm = _END_ASM
 
@@ -242,7 +256,7 @@ class NestingState(object):
             # declarations even if it weren't followed by a whitespace, this
             # is so that we don't confuse our namespace checker.  The
             # missing spaces will be flagged by CheckSpacing.
-            namespace_decl_match = Match(r'^\s*namespace\b\s*([:\w]+)?(.*)$', line)
+            namespace_decl_match = Match(r"^\s*namespace\b\s*([:\w]+)?(.*)$", line)
             if not namespace_decl_match:
                 break
 
@@ -250,9 +264,9 @@ class NestingState(object):
             self.stack.append(new_namespace)
 
             line = namespace_decl_match.group(2)
-            if line.find('{') != -1:
+            if line.find("{") != -1:
                 new_namespace.seen_open_brace = True
-                line = line[line.find('{') + 1:]
+                line = line[line.find("{") + 1 :]
 
         # Look for a class declaration in whatever is left of the line
         # after parsing namespaces.  The regexp accounts for decorated classes
@@ -260,11 +274,12 @@ class NestingState(object):
         #   class LOCKABLE API Object {
         #   };
         class_decl_match = Match(
-            r'^(\s*(?:template\s*<[\w\s<>,:=]*>\s*)?'
-            r'(class|struct)\s+(?:[a-zA-Z0-9_]+\s+)*(\w+(?:::\w+)*))'
-            r'(.*)$', line)
-        if (class_decl_match and
-            (not self.stack or self.stack[-1].open_parentheses == 0)):
+            r"^(\s*(?:template\s*<[\w\s<>,:=]*>\s*)?"
+            r"(class|struct)\s+(?:[a-zA-Z0-9_]+\s+)*(\w+(?:::\w+)*))"
+            r"(.*)$",
+            line,
+        )
+        if class_decl_match and (not self.stack or self.stack[-1].open_parentheses == 0):
             # We do not want to accept classes that are actually template arguments:
             #   template <class Ignore1,
             #             class Ignore2 = Default<Args>,
@@ -276,9 +291,14 @@ class NestingState(object):
             # template argument list.
             end_declaration = len(class_decl_match.group(1))
             if not self.InTemplateArgumentList(clean_lines, linenum, end_declaration):
-                self.stack.append(_ClassInfo(
-                    class_decl_match.group(3), class_decl_match.group(2),
-                    clean_lines, linenum))
+                self.stack.append(
+                    _ClassInfo(
+                        class_decl_match.group(3),
+                        class_decl_match.group(2),
+                        clean_lines,
+                        linenum,
+                    )
+                )
                 line = class_decl_match.group(4)
 
         # If we have not yet seen the opening brace for the innermost block,
@@ -290,37 +310,41 @@ class NestingState(object):
         if self.stack and isinstance(self.stack[-1], _ClassInfo):
             classinfo = self.stack[-1]
             access_match = Match(
-                r'^(.*)\b(public|private|protected|signals)(\s+(?:slots\s*)?)?'
-                r':(?:[^:]|$)',
-                line)
+                r"^(.*)\b(public|private|protected|signals)(\s+(?:slots\s*)?)?" r":(?:[^:]|$)",
+                line,
+            )
             if access_match:
                 classinfo.access = access_match.group(2)
 
                 # Check that access keywords are indented +1 space.  Skip this
                 # check if the keywords are not preceded by whitespaces.
                 indent = access_match.group(1)
-                if (len(indent) != classinfo.class_indent + 1 and
-                    Match(r'^\s*$', indent)):
+                if len(indent) != classinfo.class_indent + 1 and Match(r"^\s*$", indent):
                     if classinfo.is_struct:
-                        parent = 'struct ' + classinfo.name
+                        parent = "struct " + classinfo.name
                     else:
-                        parent = 'class ' + classinfo.name
-                    slots = ''
+                        parent = "class " + classinfo.name
+                    slots = ""
                     if access_match.group(3):
                         slots = access_match.group(3)
-                    error(state, filename, linenum, 'whitespace/indent', 3,
-                          '%s%s: should be indented +1 space inside %s' % (
-                              access_match.group(2), slots, parent))
+                    error(
+                        state,
+                        filename,
+                        linenum,
+                        "whitespace/indent",
+                        3,
+                        "%s%s: should be indented +1 space inside %s" % (access_match.group(2), slots, parent),
+                    )
 
         # Consume braces or semicolons from what's left of the line
         while True:
             # Match first brace, semicolon, or closed parenthesis.
-            matched = Match(r'^[^{;)}]*([{;)}])(.*)$', line)
+            matched = Match(r"^[^{;)}]*([{;)}])(.*)$", line)
             if not matched:
                 break
 
             token = matched.group(1)
-            if token == '{':
+            if token == "{":
                 # If namespace or class hasn't seen a opening brace yet, mark
                 # namespace/class head as complete.  Push a new block onto the
                 # stack otherwise.
@@ -333,7 +357,7 @@ class NestingState(object):
                     if _MATCH_ASM.match(line):
                         self.stack[-1].inline_asm = _BLOCK_ASM
 
-            elif token == ';' or token == ')':
+            elif token == ";" or token == ")":
                 # If we haven't seen an opening brace yet, but we already saw
                 # a semicolon, this is probably a forward declaration.  Pop
                 # the stack for these.
@@ -376,10 +400,20 @@ class NestingState(object):
         # cpplint_unittest.py for an example of this.
         for obj in self.stack:
             if isinstance(obj, _ClassInfo):
-                error(state, filename, obj.starting_linenum, 'build/class', 5,
-                      'Failed to find complete declaration of class %s' %
-                      obj.name)
+                error(
+                    state,
+                    filename,
+                    obj.starting_linenum,
+                    "build/class",
+                    5,
+                    "Failed to find complete declaration of class %s" % obj.name,
+                )
             elif isinstance(obj, _NamespaceInfo):
-                error(state, filename, obj.starting_linenum, 'build/namespaces', 5,
-                      'Failed to find complete declaration of namespace %s' %
-                      obj.name)
+                error(
+                    state,
+                    filename,
+                    obj.starting_linenum,
+                    "build/namespaces",
+                    5,
+                    "Failed to find complete declaration of namespace %s" % obj.name,
+                )

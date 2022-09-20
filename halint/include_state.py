@@ -1,5 +1,6 @@
 from .regex import Match
 
+
 class _IncludeState(object):
     """Tracks line numbers for includes, and the order in which includes appear.
 
@@ -12,6 +13,7 @@ class _IncludeState(object):
     raise an _IncludeError with an appropriate error message.
 
     """
+
     # self._section will move monotonically through this set. If it ever
     # needs to move backwards, CheckNextIncludeOrder will raise an error.
     _INITIAL_SECTION = 0
@@ -31,28 +33,28 @@ class _IncludeState(object):
     _OTHER_HEADER = 6
 
     _TYPE_NAMES = {
-        _C_SYS_HEADER: 'C system header',
-        _CPP_SYS_HEADER: 'C++ system header',
-        _OTHER_SYS_HEADER: 'other system header',
-        _LIKELY_MY_HEADER: 'header this file implements',
-        _POSSIBLE_MY_HEADER: 'header this file may implement',
-        _OTHER_HEADER: 'other header',
-        }
+        _C_SYS_HEADER: "C system header",
+        _CPP_SYS_HEADER: "C++ system header",
+        _OTHER_SYS_HEADER: "other system header",
+        _LIKELY_MY_HEADER: "header this file implements",
+        _POSSIBLE_MY_HEADER: "header this file may implement",
+        _OTHER_HEADER: "other header",
+    }
 
     _SECTION_NAMES = {
         _INITIAL_SECTION: "... nothing. (This can't be an error.)",
-        _MY_H_SECTION: 'a header this file implements',
-        _C_SECTION: 'C system header',
-        _CPP_SECTION: 'C++ system header',
-        _OTHER_SYS_SECTION: 'other system header',
-        _OTHER_H_SECTION: 'other header',
-        }
+        _MY_H_SECTION: "a header this file implements",
+        _C_SECTION: "C system header",
+        _CPP_SECTION: "C++ system header",
+        _OTHER_SYS_SECTION: "other system header",
+        _OTHER_H_SECTION: "other header",
+    }
 
     def __init__(self):
         self.include_list = [[]]
         self._section = None
         self._last_header = None
-        self.ResetSection('')
+        self.ResetSection("")
 
     def FindHeader(self, header):
         """Check if a header has already been included.
@@ -78,13 +80,13 @@ class _IncludeState(object):
         # The name of the current section.
         self._section = self._INITIAL_SECTION
         # The path of last found header.
-        self._last_header = ''
+        self._last_header = ""
 
         # Update list of includes.  Note that we never pop from the
         # include list.
-        if directive in ('if', 'ifdef', 'ifndef'):
+        if directive in ("if", "ifdef", "ifndef"):
             self.include_list.append([])
-        elif directive in ('else', 'elif'):
+        elif directive in ("else", "elif"):
             self.include_list[-1] = []
 
     def SetLastHeader(self, header_path):
@@ -103,7 +105,7 @@ class _IncludeState(object):
         Returns:
           Canonicalized path.
         """
-        return header_path.replace('-inl.h', '.h').replace('-', '_').lower()
+        return header_path.replace("-inl.h", ".h").replace("-", "_").lower()
 
     def IsInAlphabeticalOrder(self, clean_lines, linenum, header_path):
         """Check if a header is in alphabetical order with the previous header.
@@ -121,8 +123,7 @@ class _IncludeState(object):
         #
         # If previous line was a blank line, assume that the headers are
         # intentionally sorted the way they are.
-        if (self._last_header > header_path and
-            Match(r'^\s*#\s*include\b', clean_lines.elided[linenum - 1])):
+        if self._last_header > header_path and Match(r"^\s*#\s*include\b", clean_lines.elided[linenum - 1]):
             return False
         return True
 
@@ -140,9 +141,10 @@ class _IncludeState(object):
           error message describing what's wrong.
 
         """
-        error_message = ('Found %s after %s' %
-                         (self._TYPE_NAMES[header_type],
-                          self._SECTION_NAMES[self._section]))
+        error_message = "Found %s after %s" % (
+            self._TYPE_NAMES[header_type],
+            self._SECTION_NAMES[self._section],
+        )
 
         last_section = self._section
 
@@ -150,19 +152,19 @@ class _IncludeState(object):
             if self._section <= self._C_SECTION:
                 self._section = self._C_SECTION
             else:
-                self._last_header = ''
+                self._last_header = ""
                 return error_message
         elif header_type == self._CPP_SYS_HEADER:
             if self._section <= self._CPP_SECTION:
                 self._section = self._CPP_SECTION
             else:
-                self._last_header = ''
+                self._last_header = ""
                 return error_message
         elif header_type == self._OTHER_SYS_HEADER:
             if self._section <= self._OTHER_SYS_SECTION:
                 self._section = self._OTHER_SYS_SECTION
             else:
-                self._last_header = ''
+                self._last_header = ""
                 return error_message
         elif header_type == self._LIKELY_MY_HEADER:
             if self._section <= self._MY_H_SECTION:
@@ -181,8 +183,6 @@ class _IncludeState(object):
             self._section = self._OTHER_H_SECTION
 
         if last_section != self._section:
-            self._last_header = ''
+            self._last_header = ""
 
-        return ''
-
-
+        return ""

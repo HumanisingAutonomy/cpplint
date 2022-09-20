@@ -1,11 +1,10 @@
-from multiprocessing.sharedctypes import Value
 import sys
 from typing import Union
 
 import halint.cpplint as cpplint
-from halint._cpplintstate import _CppLintState
-
 from halint.categories import _ERROR_CATEGORIES
+from halint.lintstate import LintState
+
 
 # This class works as an error collector and replaces cpplint.Error
 # function for the unit tests.  We also verify each category we see
@@ -18,17 +17,24 @@ class ErrorCollector(object):
     def __init__(self):
         self._errors = []
 
-    def __call__(self, state: _CppLintState, unused_filename: str, linenum: int,
-                 category: str, confidence: int, message: str):
+    def __call__(
+        self,
+        state: LintState,
+        unused_filename: str,
+        linenum: int,
+        category: str,
+        confidence: int,
+        message: str,
+    ):
         if category not in self._ERROR_CATEGORIES:
-            raise ValueError(f'Message {message} has category {category}, which is not in _ERROR_CATEGORIES')
+            raise ValueError(f"Message {message} has category {category}, which is not in _ERROR_CATEGORIES")
         self._SEEN_ERROR_CATEGORIES[category] = 1
         if cpplint._ShouldPrintError(state, category, confidence, linenum):
-            self._errors.append('%s  [%s] [%d]' % (message, category, confidence))
+            self._errors.append("%s  [%s] [%d]" % (message, category, confidence))
 
     def Results(self) -> Union[str, list[str]]:
         if len(self._errors) <= 1:
-            return ''.join(self._errors)  # Most tests expect to have a string.
+            return "".join(self._errors)  # Most tests expect to have a string.
         else:
             return self._errors  # Let's give a list if there is more than one.
 
@@ -51,5 +57,5 @@ class ErrorCollector(object):
     def RemoveIfPresent(self, substr: str) -> None:
         for (index, error) in enumerate(self._errors):
             if error.find(substr) != -1:
-                self._errors = self._errors[0:index] + self._errors[(index + 1):]
+                self._errors = self._errors[0:index] + self._errors[(index + 1) :]
                 break

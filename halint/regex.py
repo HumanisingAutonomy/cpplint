@@ -2,6 +2,7 @@ import sre_compile
 
 _regexp_compile_cache = {}
 
+
 def Match(pattern, s):
     """Matches the string with the pattern, caching the compiled regexp."""
     # The regexp compilation caching is inlined in both Match and Search for

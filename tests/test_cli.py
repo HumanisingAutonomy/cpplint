@@ -31,22 +31,20 @@
 
 """Command Line interface integration test for cpplint.py."""
 
-from enum import auto
 import os
-import sys
-import subprocess
-import unittest
 import shutil
+import subprocess
+import sys
 import tempfile
-import textwrap
+import unittest
 
 import pytest
-
 from testfixtures import compare
 
-BASE_CMD = sys.executable + ' ' + os.path.abspath('./main.py ')
+BASE_CMD = sys.executable + " " + os.path.abspath("./main.py ")
 
-def RunShellCommand(cmd, cwd='.'):
+
+def RunShellCommand(cmd, cwd="."):
     """
     executes a command
     :param cmd: A string to execute.
@@ -58,23 +56,19 @@ def RunShellCommand(cmd, cwd='.'):
 
     print(f"Running: {cmd}")
 
-    proc = subprocess.Popen(cmd,
-                            shell=True,
-                            cwd=cwd,
-                            stdout=stdout_target,
-                            stderr=stderr_target)
+    proc = subprocess.Popen(cmd, shell=True, cwd=cwd, stdout=stdout_target, stderr=stderr_target)
     out, err = proc.communicate()
     # print(err) # to get the output at time of test
     return (proc.returncode, out, err)
 
 
-class TestUsage():
+class TestUsage:
+    def test_help(self):
+        (status, out, err) = RunShellCommand(BASE_CMD + " --help")
+        assert 0 == status, (out, err)
+        assert b"" == out, (out, err)
+        assert err.startswith(b"\nSyntax: cpplint"), (out, err)
 
-    def testHelp(self):
-        (status, out, err) = RunShellCommand(BASE_CMD + ' --help')
-        assert 0 == status
-        assert b'' == out
-        assert err.startswith(b'\nSyntax: cpplint')
 
 class TemporaryFolderClassSetup:
     """
@@ -86,23 +80,19 @@ class TemporaryFolderClassSetup:
     systemerr output (two blank lines at end).
     """
 
+    _root = None
+
+    @classmethod
     @pytest.fixture(autouse=True)
-    def setUpClass(cls):
+    def setup_class(cls):
         """setup tmp folder for testing with samples and custom additions by subclasses"""
-        try:
-            cls._root = os.path.realpath(tempfile.mkdtemp())
-            shutil.copytree('samples', os.path.join(cls._root, 'samples'))
-            cls.prepare_directory(cls._root)
-        except Exception:
-            try:
-                cls.tearDownClass()
-            except Exception:
-                pass
-            raise
+        cls._root = os.path.realpath(tempfile.mkdtemp())
+        shutil.copytree("samples", os.path.join(cls._root, "samples"))
+        cls.prepare_directory(cls._root)
 
         yield
 
-        if (cls._root):
+        if cls._root:
             # pass
             shutil.rmtree(cls._root)
 
@@ -113,7 +103,7 @@ class TemporaryFolderClassSetup:
 
     def get_extra_command_args(self, cwd):
         """Override in subclass to add arguments to command"""
-        return ''
+        return ""
 
     def checkAllInFolder(self, foldername, expectedDefs):
         # uncomment to show complete diff
@@ -121,7 +111,7 @@ class TemporaryFolderClassSetup:
         count = 0
         for dirpath, _, fnames in os.walk(foldername):
             for f in fnames:
-                if f.endswith('.def'):
+                if f.endswith(".def"):
                     count += 1
                     self._checkDef(os.path.join(dirpath, f))
         assert count == expectedDefs
@@ -129,97 +119,110 @@ class TemporaryFolderClassSetup:
     def _checkDef(self, path):
         """runs command and compares to expected output from def file"""
         # self.maxDiff = None # to see full diff
-        with open(path, 'rb') as filehandle:
+        with open(path, "rb") as filehandle:
             datalines = filehandle.readlines()
             stdoutLines = int(datalines[2])
-            self._runAndCheck(path,
-                              datalines[0].decode('utf8').strip(),
-                              int(datalines[1]),
-                              [line.decode('utf8').strip() for line in datalines[3:3 + stdoutLines]],
-                              [line.decode('utf8').strip() for line in datalines[3 + stdoutLines:]])
+            self._runAndCheck(
+                path,
+                datalines[0].decode("utf8").strip(),
+                int(datalines[1]),
+                [line.decode("utf8").strip() for line in datalines[3 : 3 + stdoutLines]],
+                [line.decode("utf8").strip() for line in datalines[3 + stdoutLines :]],
+            )
 
-    def _runAndCheck(
-            self,
-            definition_file,
-            args,
-            expected_status,
-            expected_out,
-            expected_err
-    ):
+    def _runAndCheck(self, definition_file, args, expected_status, expected_out, expected_err):
         rel_cwd = os.path.dirname(definition_file)
         cmd = BASE_CMD + self.get_extra_command_args(rel_cwd) + args
         cwd = os.path.join(self._root, rel_cwd)
         # command to reproduce, do not forget first two lines have special meaning
         print("\ncd " + cwd + " && " + cmd + " 2> <filename>")
         (status, out, err) = RunShellCommand(cmd, cwd)
-        assert expected_status, status == 'bad command status %s' % status
-        prefix = 'Failed check in %s comparing to %s for command: %s' % (cwd, definition_file, cmd)
-        compare('\n'.join(expected_err), err.decode('utf8'), prefix=prefix, show_whitespace=True)
-        compare('\n'.join(expected_out), out.decode('utf8'), prefix=prefix, show_whitespace=True)
+        assert expected_status, status == "bad command status %s" % status
+        prefix = "Failed check in %s comparing to %s for command: %s" % (
+            cwd,
+            definition_file,
+            cmd,
+        )
+        compare(
+            "\n".join(expected_err),
+            err.decode("utf8"),
+            prefix=prefix,
+            show_whitespace=True,
+        )
+        compare(
+            "\n".join(expected_out),
+            out.decode("utf8"),
+            prefix=prefix,
+            show_whitespace=True,
+        )
 
 
 class TestNoRepoSignature(TemporaryFolderClassSetup):
     """runs in a temporary folder (under /tmp in linux) without any .git/.hg/.svn file"""
 
     def get_extra_command_args(self, cwd):
-        return (' --repository %s ' % self._root)
+        return " --repository %s " % self._root
 
     def testChromiumSample(self):
-        self.checkAllInFolder('./samples/chromium-sample', 1)
+        self.checkAllInFolder("./samples/chromium-sample", 1)
 
     def testVlcSample(self):
-        self.checkAllInFolder('./samples/vlc-sample', 1)
+        self.checkAllInFolder("./samples/vlc-sample", 1)
 
     def testSillySample(self):
-        self.checkAllInFolder('./samples/silly-sample', 4)
+        self.checkAllInFolder("./samples/silly-sample", 4)
 
     def testCfgFileSample(self):
-        self.checkAllInFolder('./samples/cfg-file', 1)
+        self.checkAllInFolder("./samples/cfg-file", 1)
 
     def testBoostSample(self):
-        self.checkAllInFolder('./samples/boost-sample', 4)
+        self.checkAllInFolder("./samples/boost-sample", 4)
 
     def testProtobufSample(self):
-        self.checkAllInFolder('./samples/protobuf-sample', 1)
+        self.checkAllInFolder("./samples/protobuf-sample", 1)
 
     def testCodeliteSample(self):
-        self.checkAllInFolder('./samples/codelite-sample', 1)
+        self.checkAllInFolder("./samples/codelite-sample", 1)
 
     def testV8Sample(self):
-        self.checkAllInFolder('./samples/v8-sample', 1)
+        self.checkAllInFolder("./samples/v8-sample", 1)
+
 
 class GitRepoSignatureTests(TemporaryFolderClassSetup):
     """runs in a temporary folder with .git file"""
 
     @classmethod
     def prepare_directory(cls, root):
-        with open(os.path.join(root, '.git'), 'a'):
+        with open(os.path.join(root, ".git"), "a"):
             pass
 
     def testCodeliteSample(self):
-        self.checkAllInFolder('./samples/codelite-sample', 1)
+        self.checkAllInFolder("./samples/codelite-sample", 1)
+
 
 class MercurialRepoSignatureTests(TemporaryFolderClassSetup):
     """runs in a temporary folder with .hg file"""
 
     @classmethod
     def prepare_directory(cls, root):
-        with open(os.path.join(root, '.hg'), 'a'):
+        with open(os.path.join(root, ".hg"), "a"):
             pass
 
     def testCodeliteSample(self):
-        self.checkAllInFolder('./samples/codelite-sample', 1)
+        self.checkAllInFolder("./samples/codelite-sample", 1)
+
 
 class SvnRepoSignatureTests(TemporaryFolderClassSetup):
     """runs in a temporary folder with .svn file"""
 
     @classmethod
     def prepare_directory(cls, root):
-        with open(os.path.join(root, '.svn'), 'a'):
+        with open(os.path.join(root, ".svn"), "a"):
             pass
 
     def testCodeliteSample(self):
-        self.checkAllInFolder('./samples/codelite-sample', 1)
+        self.checkAllInFolder("./samples/codelite-sample", 1)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

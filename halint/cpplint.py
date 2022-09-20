@@ -52,59 +52,57 @@ import re
 import sys
 from typing import Callable
 
-from ._cpplintstate import _CppLintState
-from .cleansed_lines import CleansedLines, CleanseComments, _RE_PATTERN_INCLUDE
-from .include_state import _IncludeState
-from .error import ErrorLogger
-from .file_info import FileInfo, _IsExtension
-from .function_state import _FunctionState
-from .regex import Match, Search
-from .nesting_state import NestingState
 from .block_info import (
-    ReverseCloseExpression,
+    _TEST_FILE_SUFFIX,
     GetHeaderGuardCPPVariable,
     ParseNolintSuppressions,
     ResetNolintSuppressions,
-    _TEST_FILE_SUFFIX
+    ReverseCloseExpression,
 )
-
 from .check_line import ProcessLine
+from .cleansed_lines import _RE_PATTERN_INCLUDE, CleanseComments, CleansedLines
+from .error import ErrorLogger
+from .file_info import FileInfo, _IsExtension
+from .function_state import _FunctionState
+from .include_state import _IncludeState
+from .lintstate import LintState
+from .nesting_state import NestingState
+from .regex import Match, Search
 
 # The default list of categories suppressed for C (not C++) files.
 _DEFAULT_C_SUPPRESSED_CATEGORIES = [
-    'readability/casting',
+    "readability/casting",
 ]
 
 # The default list of categories suppressed for Linux Kernel files.
 _DEFAULT_KERNEL_SUPPRESSED_CATEGORIES = [
-    'whitespace/tab',
+    "whitespace/tab",
 ]
 
 # Match strings that indicate we're working on a C (not C++) file.
-_SEARCH_C_FILE = re.compile(r'\b(?:LINT_C_FILE|'
-                            r'vim?:\s*.*(\s*|:)filetype=c(\s*|:|$))')
+_SEARCH_C_FILE = re.compile(r"\b(?:LINT_C_FILE|" r"vim?:\s*.*(\s*|:)filetype=c(\s*|:|$))")
 
 # Match string that indicates we're working on a Linux Kernel file.
-_SEARCH_KERNEL_FILE = re.compile(r'\b(?:LINT_KERNEL_FILE)')
+_SEARCH_KERNEL_FILE = re.compile(r"\b(?:LINT_KERNEL_FILE)")
 
 # Commands for sed to fix the problem
 _SED_FIXUPS = {
-    'Remove spaces around =': r's/ = /=/',
-    'Remove spaces around !=': r's/ != /!=/',
-    'Remove space before ( in if (': r's/if (/if(/',
-    'Remove space before ( in for (': r's/for (/for(/',
-    'Remove space before ( in while (': r's/while (/while(/',
-    'Remove space before ( in switch (': r's/switch (/switch(/',
-    'Should have a space between // and comment': r's/\/\//\/\/ /',
-    'Missing space before {': r's/\([^ ]\){/\1 {/',
-    'Tab found, replace by spaces': r's/\t/  /g',
-    'Line ends in whitespace.  Consider deleting these extra spaces.': r's/\s*$//',
-    'You don\'t need a ; after a }': r's/};/}/',
-    'Missing space after ,': r's/,\([^ ]\)/, \1/g',
+    "Remove spaces around =": r"s/ = /=/",
+    "Remove spaces around !=": r"s/ != /!=/",
+    "Remove space before ( in if (": r"s/if (/if(/",
+    "Remove space before ( in for (": r"s/for (/for(/",
+    "Remove space before ( in while (": r"s/while (/while(/",
+    "Remove space before ( in switch (": r"s/switch (/switch(/",
+    "Should have a space between // and comment": r"s/\/\//\/\/ /",
+    "Missing space before {": r"s/\([^ ]\){/\1 {/",
+    "Tab found, replace by spaces": r"s/\t/  /g",
+    "Line ends in whitespace.  Consider deleting these extra spaces.": r"s/\s*$//",
+    "You don't need a ; after a }": r"s/};/}/",
+    "Missing space after ,": r"s/,\([^ ]\)/, \1/g",
 }
 
 
-def ProcessGlobalSuppresions(state: _CppLintState, lines: list[str]):
+def ProcessGlobalSuppresions(state: LintState, lines: list[str]):
     """Updates the list of global error suppressions.
 
     Parses any lint directives in the file that have global effect.
@@ -122,7 +120,7 @@ def ProcessGlobalSuppresions(state: _CppLintState, lines: list[str]):
                 state._global_error_suppressions[category] = True
 
 
-def IsErrorSuppressedByNolint(state: _CppLintState, category: str, linenum: int):
+def IsErrorSuppressedByNolint(state: LintState, category: str, linenum: int):
     """Returns true if the specified error category is suppressed on this line.
 
     Consults the global error_suppressions map populated by
@@ -135,12 +133,14 @@ def IsErrorSuppressedByNolint(state: _CppLintState, category: str, linenum: int)
       bool, True iff the error should be suppressed due to a NOLINT comment or
       global suppression.
     """
-    return (state._global_error_suppressions.get(category, False) or
-            linenum in state._error_suppressions.get(category, set()) or
-            linenum in state._error_suppressions.get(None, set()))
+    return (
+        state._global_error_suppressions.get(category, False)
+        or linenum in state._error_suppressions.get(category, set())
+        or linenum in state._error_suppressions.get(None, set())
+    )
 
 
-def _ShouldPrintError(state: _CppLintState, category, confidence, linenum):
+def _ShouldPrintError(state: LintState, category, confidence, linenum):
     """If confidence >= verbose, category passes filter and is not suppressed."""
 
     # There are three ways we might decide not to print an error message:
@@ -154,10 +154,10 @@ def _ShouldPrintError(state: _CppLintState, category, confidence, linenum):
 
     is_filtered = False
     for one_filter in state.filters:
-        if one_filter.startswith('-'):
+        if one_filter.startswith("-"):
             if category.startswith(one_filter[1:]):
                 is_filtered = True
-        elif one_filter.startswith('+'):
+        elif one_filter.startswith("+"):
             if category.startswith(one_filter[1:]):
                 is_filtered = False
         else:
@@ -168,7 +168,14 @@ def _ShouldPrintError(state: _CppLintState, category, confidence, linenum):
     return True
 
 
-def Error(state: _CppLintState, filename: str, line_num: int, category: str, confidence: int, message: str):
+def Error(
+    state: LintState,
+    filename: str,
+    line_num: int,
+    category: str,
+    confidence: int,
+    message: str,
+):
     """Logs the fact we've found a lint error.
 
     We log where the error was found, and also our confidence in the error,
@@ -193,34 +200,48 @@ def Error(state: _CppLintState, filename: str, line_num: int, category: str, con
     """
     if _ShouldPrintError(state, category, confidence, line_num):
         state.IncrementErrorCount(category)
-        if state.output_format == 'vs7':
-            state.PrintError(state, '%s(%s): error cpplint: [%s] %s [%d]\n' % (
-                filename, line_num, category, message, confidence))
-        elif state.output_format == 'eclipse':
-            sys.stderr.write('%s:%s: warning: %s  [%s] [%d]\n' % (
-                filename, line_num, message, category, confidence))
-        elif state.output_format == 'junit':
-            state.AddJUnitFailure(filename, line_num, message, category,
-                                  confidence)
-        elif state.output_format in ['sed', 'gsed']:
+        if state.output_format == "vs7":
+            state.PrintError(
+                state,
+                "%s(%s): error cpplint: [%s] %s [%d]\n" % (filename, line_num, category, message, confidence),
+            )
+        elif state.output_format == "eclipse":
+            sys.stderr.write("%s:%s: warning: %s  [%s] [%d]\n" % (filename, line_num, message, category, confidence))
+        elif state.output_format == "junit":
+            state.AddJUnitFailure(filename, line_num, message, category, confidence)
+        elif state.output_format in ["sed", "gsed"]:
             if message in _SED_FIXUPS:
-                sys.stdout.write(state.output_format + " -i '%s%s' %s # %s  [%s] [%d]\n" % (
-                    line_num, _SED_FIXUPS[message], filename, message, category, confidence))
+                sys.stdout.write(
+                    state.output_format
+                    + " -i '%s%s' %s # %s  [%s] [%d]\n"
+                    % (
+                        line_num,
+                        _SED_FIXUPS[message],
+                        filename,
+                        message,
+                        category,
+                        confidence,
+                    )
+                )
             else:
-                sys.stderr.write('# %s:%s:  "%s"  [%s] [%d]\n' % (
-                    filename, line_num, message, category, confidence))
+                sys.stderr.write('# %s:%s:  "%s"  [%s] [%d]\n' % (filename, line_num, message, category, confidence))
         else:
-            final_message = '%s:%s:  %s  [%s] [%d]\n' % (
-                filename, line_num, message, category, confidence)
+            final_message = "%s:%s:  %s  [%s] [%d]\n" % (
+                filename,
+                line_num,
+                message,
+                category,
+                confidence,
+            )
             sys.stderr.write(final_message)
 
 
 def FindNextMultiLineCommentStart(lines, lineix):
     """Find the beginning marker for a multiline comment."""
     while lineix < len(lines):
-        if lines[lineix].strip().startswith('/*'):
+        if lines[lineix].strip().startswith("/*"):
             # Only return this marker if the comment goes beyond this line
-            if lines[lineix].strip().find('*/', 2) < 0:
+            if lines[lineix].strip().find("*/", 2) < 0:
                 return lineix
         lineix += 1
     return len(lines)
@@ -229,7 +250,7 @@ def FindNextMultiLineCommentStart(lines, lineix):
 def FindNextMultiLineCommentEnd(lines, lineix):
     """We are inside a comment, find the end marker."""
     while lineix < len(lines):
-        if lines[lineix].strip().endswith('*/'):
+        if lines[lineix].strip().endswith("*/"):
             return lineix
         lineix += 1
     return len(lines)
@@ -240,7 +261,7 @@ def RemoveMultiLineCommentsFromRange(lines, begin, end):
     # Having // <empty> comments makes the lines non-empty, so we will not get
     # unnecessary blank line warnings later in the code.
     for i in range(begin, end):
-        lines[i] = '/**/'
+        lines[i] = "/**/"
 
 
 def RemoveMultiLineComments(state, filename, lines, error):
@@ -252,88 +273,17 @@ def RemoveMultiLineComments(state, filename, lines, error):
             return
         lineix_end = FindNextMultiLineCommentEnd(lines, lineix_begin)
         if lineix_end >= len(lines):
-            error(state, filename, lineix_begin + 1, 'readability/multiline_comment', 5,
-                  'Could not find end of multi-line comment')
+            error(
+                state,
+                filename,
+                lineix_begin + 1,
+                "readability/multiline_comment",
+                5,
+                "Could not find end of multi-line comment",
+            )
             return
         RemoveMultiLineCommentsFromRange(lines, lineix_begin, lineix_end + 1)
         lineix = lineix_end + 1
-
-
-def FindStartOfExpressionInLine(line, endpos, stack):
-    """Find position at the matching start of current expression.
-
-    This is almost the reverse of FindEndOfExpressionInLine, but note
-    that the input position and returned position differs by 1.
-
-    Args:
-      line: a CleansedLines line.
-      endpos: start searching at this position.
-      stack: nesting stack at endpos.
-
-    Returns:
-      On finding matching start: (index at matching start, None)
-      On finding an unclosed expression: (-1, None)
-      Otherwise: (-1, new stack at beginning of this line)
-    """
-    i = endpos
-    while i >= 0:
-        char = line[i]
-        if char in ')]}':
-            # Found end of expression, push to expression stack
-            stack.append(char)
-        elif char == '>':
-            # Found potential end of template argument list.
-            #
-            # Ignore it if it's a "->" or ">=" or "operator>"
-            if (i > 0 and
-                (line[i - 1] == '-' or
-                 Match(r'\s>=\s', line[i - 1:]) or
-                 Search(r'\boperator\s*$', line[0:i]))):
-                i -= 1
-            else:
-                stack.append('>')
-        elif char == '<':
-            # Found potential start of template argument list
-            if i > 0 and line[i - 1] == '<':
-                # Left shift operator
-                i -= 1
-            else:
-                # If there is a matching '>', we can pop the expression stack.
-                # Otherwise, ignore this '<' since it must be an operator.
-                if stack and stack[-1] == '>':
-                    stack.pop()
-                    if not stack:
-                        return (i, None)
-        elif char in '([{':
-            # Found start of expression.
-            #
-            # If there are any unmatched '>' on the stack, they must be
-            # operators.  Remove those.
-            while stack and stack[-1] == '>':
-                stack.pop()
-            if not stack:
-                return (-1, None)
-            if ((char == '(' and stack[-1] == ')') or
-                (char == '[' and stack[-1] == ']') or
-                (char == '{' and stack[-1] == '}')):
-                stack.pop()
-                if not stack:
-                    return (i, None)
-            else:
-                # Mismatched parentheses
-                return (-1, None)
-        elif char == ';':
-            # Found something that look like end of statements.  If we are currently
-            # expecting a '<', the matching '>' must have been an operator, since
-            # template argument list should not contain statements.
-            while stack and stack[-1] == '>':
-                stack.pop()
-            if not stack:
-                return (-1, None)
-
-        i -= 1
-
-    return (-1, stack)
 
 
 def CheckForCopyright(state, filename, lines, error):
@@ -342,11 +292,17 @@ def CheckForCopyright(state, filename, lines, error):
     # We'll say it should occur by line 10. Don't forget there's a
     # placeholder line at the front.
     for line in range(1, min(len(lines), 11)):
-        if re.search(r'Copyright', lines[line], re.I): break
+        if re.search(r"Copyright", lines[line], re.I):
+            break
     else:  # means no copyright line was found
-        error(state, filename, 0, 'legal/copyright', 5,
-              'No copyright message found.  '
-              'You should have a line: "Copyright [year] <Copyright Owner>"')
+        error(
+            state,
+            filename,
+            0,
+            "legal/copyright",
+            5,
+            "No copyright message found.  " 'You should have a line: "Copyright [year] <Copyright Owner>"',
+        )
 
 
 def GetIndentLevel(line):
@@ -358,15 +314,19 @@ def GetIndentLevel(line):
     Returns:
       An integer count of leading spaces, possibly zero.
     """
-    indent = Match(r'^( *)\S', line)
+    indent = Match(r"^( *)\S", line)
     if indent:
         return len(indent.group(1))
     else:
         return 0
 
 
-def CheckForHeaderGuard(state: _CppLintState, filename: str, clean_lines: CleansedLines,
-                        error: Callable[[_CppLintState, str, int, str, int, str], None]):
+def CheckForHeaderGuard(
+    state: LintState,
+    filename: str,
+    clean_lines: CleansedLines,
+    error: Callable[[LintState, str, int, str, int, str], None],
+):
     """Checks that the file contains a header guard.
 
     Logs an error if no #ifndef header guard is present.  For other
@@ -386,63 +346,78 @@ def CheckForHeaderGuard(state: _CppLintState, filename: str, clean_lines: Cleans
     # and not the general NOLINT or NOLINT(*) syntax.
     raw_lines = clean_lines.lines_without_raw_strings
     for i in raw_lines:
-        if Search(r'//\s*NOLINT\(build/header_guard\)', i):
+        if Search(r"//\s*NOLINT\(build/header_guard\)", i):
             return
 
     # Allow pragma once instead of header guards
     for i in raw_lines:
-        if Search(r'^\s*#pragma\s+once', i):
+        if Search(r"^\s*#pragma\s+once", i):
             return
 
     cppvar = GetHeaderGuardCPPVariable(state, filename)
 
-    ifndef = ''
+    ifndef = ""
     ifndef_linenum = 0
-    define = ''
-    endif = ''
+    define = ""
+    endif = ""
     endif_linenum = 0
     for linenum, line in enumerate(raw_lines):
         linesplit = line.split()
         if len(linesplit) >= 2:
             # find the first occurrence of #ifndef and #define, save arg
-            if not ifndef and linesplit[0] == '#ifndef':
+            if not ifndef and linesplit[0] == "#ifndef":
                 # set ifndef to the header guard presented on the #ifndef line.
                 ifndef = linesplit[1]
                 ifndef_linenum = linenum
-            if not define and linesplit[0] == '#define':
+            if not define and linesplit[0] == "#define":
                 define = linesplit[1]
         # find the last occurrence of #endif, save entire line
-        if line.startswith('#endif'):
+        if line.startswith("#endif"):
             endif = line
             endif_linenum = linenum
 
     if not ifndef or not define or ifndef != define:
-        error(state, filename, 0, 'build/header_guard', 5,
-              'No #ifndef header guard found, suggested CPP variable is: %s' %
-              cppvar)
+        error(
+            state,
+            filename,
+            0,
+            "build/header_guard",
+            5,
+            "No #ifndef header guard found, suggested CPP variable is: %s" % cppvar,
+        )
         return
 
     # The guard should be PATH_FILE_H_, but we also allow PATH_FILE_H__
     # for backward compatibility.
     if ifndef != cppvar:
         error_level = 0
-        if ifndef != cppvar + '_':
+        if ifndef != cppvar + "_":
             error_level = 5
 
-        ParseNolintSuppressions(state, filename, raw_lines[ifndef_linenum], ifndef_linenum,
-                                error)
-        error(state, filename, ifndef_linenum, 'build/header_guard', error_level,
-              '#ifndef header guard has wrong style, please use: %s' % cppvar)
+        ParseNolintSuppressions(state, filename, raw_lines[ifndef_linenum], ifndef_linenum, error)
+        error(
+            state,
+            filename,
+            ifndef_linenum,
+            "build/header_guard",
+            error_level,
+            "#ifndef header guard has wrong style, please use: %s" % cppvar,
+        )
 
     # Check for "//" comments on endif line.
-    ParseNolintSuppressions(state, filename, raw_lines[endif_linenum], endif_linenum,
-                            error)
-    match = Match(r'#endif\s*//\s*' + cppvar + r'(_)?\b', endif)
+    ParseNolintSuppressions(state, filename, raw_lines[endif_linenum], endif_linenum, error)
+    match = Match(r"#endif\s*//\s*" + cppvar + r"(_)?\b", endif)
     if match:
-        if match.group(1) == '_':
+        if match.group(1) == "_":
             # Issue low severity warning for deprecated double trailing underscore
-            error(state, filename, endif_linenum, 'build/header_guard', 0,
-                  '#endif line should be "#endif  // %s"' % cppvar)
+            error(
+                state,
+                filename,
+                endif_linenum,
+                "build/header_guard",
+                0,
+                '#endif line should be "#endif  // %s"' % cppvar,
+            )
         return
 
     # Didn't find the corresponding "//" comment.  If this file does not
@@ -456,21 +431,32 @@ def CheckForHeaderGuard(state: _CppLintState, filename: str, clean_lines: Cleans
             break
 
     if no_single_line_comments:
-        match = Match(r'#endif\s*/\*\s*' + cppvar + r'(_)?\s*\*/', endif)
+        match = Match(r"#endif\s*/\*\s*" + cppvar + r"(_)?\s*\*/", endif)
         if match:
-            if match.group(1) == '_':
+            if match.group(1) == "_":
                 # Low severity warning for double trailing underscore
-                error(state, filename, endif_linenum, 'build/header_guard', 0,
-                      '#endif line should be "#endif  /* %s */"' % cppvar)
+                error(
+                    state,
+                    filename,
+                    endif_linenum,
+                    "build/header_guard",
+                    0,
+                    '#endif line should be "#endif  /* %s */"' % cppvar,
+                )
             return
 
     # Didn't find anything
-    error(state, filename, endif_linenum, 'build/header_guard', 5,
-          '#endif line should be "#endif  // %s"' % cppvar)
+    error(
+        state,
+        filename,
+        endif_linenum,
+        "build/header_guard",
+        5,
+        '#endif line should be "#endif  // %s"' % cppvar,
+    )
 
 
-def CheckHeaderFileIncluded(state: _CppLintState, filename: int, include_state: _IncludeState,
-                            error: ErrorLogger):
+def CheckHeaderFileIncluded(state: LintState, filename: int, include_state: _IncludeState, error: ErrorLogger):
     """Logs an error if a source file does not include its header."""
 
     # Do not check test files
@@ -479,8 +465,8 @@ def CheckHeaderFileIncluded(state: _CppLintState, filename: int, include_state: 
         return
 
     for ext in state.GetHeaderExtensions():
-        basefilename = filename[0:len(filename) - len(fileinfo.Extension())]
-        headerfile = basefilename + '.' + ext
+        basefilename = filename[0 : len(filename) - len(fileinfo.Extension())]
+        headerfile = basefilename + "." + ext
         if not os.path.exists(headerfile):
             continue
         headername = FileInfo(headerfile).RepositoryName(state._repository)
@@ -496,11 +482,14 @@ def CheckHeaderFileIncluded(state: _CppLintState, filename: int, include_state: 
                 if not first_include:
                     first_include = f[1]
 
-        message = '%s should include its header file %s' % (fileinfo.RepositoryName(state._repository), headername)
+        message = "%s should include its header file %s" % (
+            fileinfo.RepositoryName(state._repository),
+            headername,
+        )
         if include_uses_unix_dir_aliases:
             message += ". Relative paths like . and .. are not allowed."
 
-        error(state, filename, first_include, 'build/include', 5, message)
+        error(state, filename, first_include, "build/include", 5, message)
 
 
 def CheckForBadCharacters(state, filename, lines, error):
@@ -521,11 +510,24 @@ def CheckForBadCharacters(state, filename, lines, error):
       error: The function to call with any errors found.
     """
     for linenum, line in enumerate(lines):
-        if '\ufffd' in line:
-            error(state, filename, linenum, 'readability/utf8', 5,
-                  'Line contains invalid UTF-8 (or Unicode replacement character).')
-        if '\0' in line:
-            error(state, filename, linenum, 'readability/nul', 5, 'Line contains NUL byte.')
+        if "\ufffd" in line:
+            error(
+                state,
+                filename,
+                linenum,
+                "readability/utf8",
+                5,
+                "Line contains invalid UTF-8 (or Unicode replacement character).",
+            )
+        if "\0" in line:
+            error(
+                state,
+                filename,
+                linenum,
+                "readability/nul",
+                5,
+                "Line contains NUL byte.",
+            )
 
 
 def CheckForNewlineAtEOF(state, filename, lines, error):
@@ -542,22 +544,28 @@ def CheckForNewlineAtEOF(state, filename, lines, error):
     # To verify that the file ends in \n, we just have to make sure the
     # last-but-two element of lines() exists and is empty.
     if len(lines) < 3 or lines[-2]:
-        error(state, filename, len(lines) - 2, 'whitespace/ending_newline', 5,
-              'Could not find a newline character at the end of the file.')
+        error(
+            state,
+            filename,
+            len(lines) - 2,
+            "whitespace/ending_newline",
+            5,
+            "Could not find a newline character at the end of the file.",
+        )
 
 
 def IsMacroDefinition(clean_lines, linenum):
-    if Search(r'^#define', clean_lines[linenum]):
+    if Search(r"^#define", clean_lines[linenum]):
         return True
 
-    if linenum > 0 and Search(r'\\$', clean_lines[linenum - 1]):
+    if linenum > 0 and Search(r"\\$", clean_lines[linenum - 1]):
         return True
 
     return False
 
 
 def IsForwardClassDeclaration(clean_lines, linenum):
-    return Match(r'^\s*(\btemplate\b)*.*class\s+\w+;\s*$', clean_lines[linenum])
+    return Match(r"^\s*(\btemplate\b)*.*class\s+\w+;\s*$", clean_lines[linenum])
 
 
 def IsDecltype(clean_lines, linenum, column):
@@ -573,60 +581,124 @@ def IsDecltype(clean_lines, linenum, column):
     (text, _, start_col) = ReverseCloseExpression(clean_lines, linenum, column)
     if start_col < 0:
         return False
-    if Search(r'\bdecltype\s*$', text[0:start_col]):
+    if Search(r"\bdecltype\s*$", text[0:start_col]):
         return True
     return False
 
 
 _HEADERS_CONTAINING_TEMPLATES = (
-    ('<deque>', ('deque',)),
-    ('<functional>', ('unary_function', 'binary_function',
-                      'plus', 'minus', 'multiplies', 'divides', 'modulus',
-                      'negate',
-                      'equal_to', 'not_equal_to', 'greater', 'less',
-                      'greater_equal', 'less_equal',
-                      'logical_and', 'logical_or', 'logical_not',
-                      'unary_negate', 'not1', 'binary_negate', 'not2',
-                      'bind1st', 'bind2nd',
-                      'pointer_to_unary_function',
-                      'pointer_to_binary_function',
-                      'ptr_fun',
-                      'mem_fun_t', 'mem_fun', 'mem_fun1_t', 'mem_fun1_ref_t',
-                      'mem_fun_ref_t',
-                      'const_mem_fun_t', 'const_mem_fun1_t',
-                      'const_mem_fun_ref_t', 'const_mem_fun1_ref_t',
-                      'mem_fun_ref',
-                      )),
-    ('<limits>', ('numeric_limits',)),
-    ('<list>', ('list',)),
-    ('<map>', ('multimap',)),
-    ('<memory>', ('allocator', 'make_shared', 'make_unique', 'shared_ptr',
-                  'unique_ptr', 'weak_ptr')),
-    ('<queue>', ('queue', 'priority_queue',)),
-    ('<set>', ('multiset',)),
-    ('<stack>', ('stack',)),
-    ('<string>', ('char_traits', 'basic_string',)),
-    ('<tuple>', ('tuple',)),
-    ('<unordered_map>', ('unordered_map', 'unordered_multimap')),
-    ('<unordered_set>', ('unordered_set', 'unordered_multiset')),
-    ('<utility>', ('pair',)),
-    ('<vector>', ('vector',)),
-
+    ("<deque>", ("deque",)),
+    (
+        "<functional>",
+        (
+            "unary_function",
+            "binary_function",
+            "plus",
+            "minus",
+            "multiplies",
+            "divides",
+            "modulus",
+            "negate",
+            "equal_to",
+            "not_equal_to",
+            "greater",
+            "less",
+            "greater_equal",
+            "less_equal",
+            "logical_and",
+            "logical_or",
+            "logical_not",
+            "unary_negate",
+            "not1",
+            "binary_negate",
+            "not2",
+            "bind1st",
+            "bind2nd",
+            "pointer_to_unary_function",
+            "pointer_to_binary_function",
+            "ptr_fun",
+            "mem_fun_t",
+            "mem_fun",
+            "mem_fun1_t",
+            "mem_fun1_ref_t",
+            "mem_fun_ref_t",
+            "const_mem_fun_t",
+            "const_mem_fun1_t",
+            "const_mem_fun_ref_t",
+            "const_mem_fun1_ref_t",
+            "mem_fun_ref",
+        ),
+    ),
+    ("<limits>", ("numeric_limits",)),
+    ("<list>", ("list",)),
+    ("<map>", ("multimap",)),
+    (
+        "<memory>",
+        (
+            "allocator",
+            "make_shared",
+            "make_unique",
+            "shared_ptr",
+            "unique_ptr",
+            "weak_ptr",
+        ),
+    ),
+    (
+        "<queue>",
+        (
+            "queue",
+            "priority_queue",
+        ),
+    ),
+    ("<set>", ("multiset",)),
+    ("<stack>", ("stack",)),
+    (
+        "<string>",
+        (
+            "char_traits",
+            "basic_string",
+        ),
+    ),
+    ("<tuple>", ("tuple",)),
+    ("<unordered_map>", ("unordered_map", "unordered_multimap")),
+    ("<unordered_set>", ("unordered_set", "unordered_multiset")),
+    ("<utility>", ("pair",)),
+    ("<vector>", ("vector",)),
     # gcc extensions.
     # Note: std::hash is their hash, ::hash is our hash
-    ('<hash_map>', ('hash_map', 'hash_multimap',)),
-    ('<hash_set>', ('hash_set', 'hash_multiset',)),
-    ('<slist>', ('slist',)),
+    (
+        "<hash_map>",
+        (
+            "hash_map",
+            "hash_multimap",
+        ),
+    ),
+    (
+        "<hash_set>",
+        (
+            "hash_set",
+            "hash_multiset",
+        ),
+    ),
+    ("<slist>", ("slist",)),
 )
 
 _HEADERS_MAYBE_TEMPLATES = (
-    ('<algorithm>', ('copy', 'max', 'min', 'min_element', 'sort',
-                     'transform',
-                     )),
-    ('<utility>', ('forward', 'make_pair', 'move', 'swap')),
+    (
+        "<algorithm>",
+        (
+            "copy",
+            "max",
+            "min",
+            "min_element",
+            "sort",
+            "transform",
+        ),
+    ),
+    ("<utility>", ("forward", "make_pair", "move", "swap")),
 )
 
-_RE_PATTERN_STRING = re.compile(r'\bstring\b')
+_RE_PATTERN_STRING = re.compile(r"\bstring\b")
 
 _re_pattern_headers_maybe_templates = []
 for _header, _templates in _HEADERS_MAYBE_TEMPLATES:
@@ -634,31 +706,27 @@ for _header, _templates in _HEADERS_MAYBE_TEMPLATES:
         # Match max<type>(..., ...), max(..., ...), but not foo->max, foo.max or
         # 'type::max()'.
         _re_pattern_headers_maybe_templates.append(
-            (re.compile(r'[^>.]\b' + _template + r'(<.*?>)?\([^\)]'),
-             _template,
-             _header))
+            (
+                re.compile(r"[^>.]\b" + _template + r"(<.*?>)?\([^\)]"),
+                _template,
+                _header,
+            )
+        )
 # Match set<type>, but not foo->set<type>, foo.set<type>
-_re_pattern_headers_maybe_templates.append(
-    (re.compile(r'[^>.]\bset\s*\<'),
-     'set<>',
-     '<set>'))
+_re_pattern_headers_maybe_templates.append((re.compile(r"[^>.]\bset\s*\<"), "set<>", "<set>"))
 # Match 'map<type> var' and 'std::map<type>(...)', but not 'map<type>(...)''
 _re_pattern_headers_maybe_templates.append(
-    (re.compile(r'(std\b::\bmap\s*\<)|(^(std\b::\b)map\b\(\s*\<)'),
-     'map<>',
-     '<map>'))
+    (re.compile(r"(std\b::\bmap\s*\<)|(^(std\b::\b)map\b\(\s*\<)"), "map<>", "<map>")
+)
 
 # Other scripts may reach in and modify this pattern.
 _re_pattern_templates = []
 for _header, _templates in _HEADERS_CONTAINING_TEMPLATES:
     for _template in _templates:
-        _re_pattern_templates.append(
-            (re.compile(r'(\<|\b)' + _template + r'\s*\<'),
-             _template + '<>',
-             _header))
+        _re_pattern_templates.append((re.compile(r"(\<|\b)" + _template + r"\s*\<"), _template + "<>", _header))
 
 
-def FilesBelongToSameModule(state: _CppLintState, filename_cc: str, filename_h: str):
+def FilesBelongToSameModule(state: LintState, filename_cc: str, filename_h: str):
     """Check if these two filenames beint to the same module.
 
     The concept of a 'module' here is a as follows:
@@ -688,31 +756,31 @@ def FilesBelongToSameModule(state: _CppLintState, filename_cc: str, filename_h: 
       string: the additional prefix needed to open the header file.
     """
     fileinfo_cc = FileInfo(filename_cc)
-    if not fileinfo_cc.Extension().lstrip('.') in state.GetNonHeaderExtensions():
-        return (False, '')
+    if not fileinfo_cc.Extension().lstrip(".") in state.GetNonHeaderExtensions():
+        return (False, "")
 
     fileinfo_h = FileInfo(filename_h)
-    if not state.IsHeaderExtension(fileinfo_h.Extension().lstrip('.')):
-        return (False, '')
+    if not state.IsHeaderExtension(fileinfo_h.Extension().lstrip(".")):
+        return (False, "")
 
-    filename_cc = filename_cc[:-(len(fileinfo_cc.Extension()))]
+    filename_cc = filename_cc[: -(len(fileinfo_cc.Extension()))]
     matched_test_suffix = Search(_TEST_FILE_SUFFIX, fileinfo_cc.BaseName())
     if matched_test_suffix:
-        filename_cc = filename_cc[:-len(matched_test_suffix.group(1))]
+        filename_cc = filename_cc[: -len(matched_test_suffix.group(1))]
 
-    filename_cc = filename_cc.replace('/public/', '/')
-    filename_cc = filename_cc.replace('/internal/', '/')
+    filename_cc = filename_cc.replace("/public/", "/")
+    filename_cc = filename_cc.replace("/internal/", "/")
 
-    filename_h = filename_h[:-(len(fileinfo_h.Extension()))]
-    if filename_h.endswith('-inl'):
-        filename_h = filename_h[:-len('-inl')]
-    filename_h = filename_h.replace('/public/', '/')
-    filename_h = filename_h.replace('/internal/', '/')
+    filename_h = filename_h[: -(len(fileinfo_h.Extension()))]
+    if filename_h.endswith("-inl"):
+        filename_h = filename_h[: -len("-inl")]
+    filename_h = filename_h.replace("/public/", "/")
+    filename_h = filename_h.replace("/internal/", "/")
 
     files_beint_to_same_module = filename_cc.endswith(filename_h)
-    common_path = ''
+    common_path = ""
     if files_beint_to_same_module:
-        common_path = filename_cc[:-len(filename_h)]
+        common_path = filename_cc[: -len(filename_h)]
     return files_beint_to_same_module, common_path
 
 
@@ -729,7 +797,7 @@ def UpdateIncludeState(filename, include_dict, io=codecs):
     """
     headerfile = None
     try:
-        with io.open(filename, 'r', 'utf8', 'replace') as headerfile:
+        with io.open(filename, "r", "utf8", "replace") as headerfile:
             linenum = 0
             for line in headerfile:
                 linenum += 1
@@ -743,8 +811,14 @@ def UpdateIncludeState(filename, include_dict, io=codecs):
         return False
 
 
-def CheckForIncludeWhatYouUse(state: _CppLintState, filename: str, clean_lines: CleansedLines,
-                              include_state: _IncludeState, error: ErrorLogger, io=codecs):
+def CheckForIncludeWhatYouUse(
+    state: LintState,
+    filename: str,
+    clean_lines: CleansedLines,
+    include_state: _IncludeState,
+    error: ErrorLogger,
+    io=codecs,
+):
     """Reports for missing stl includes.
 
     This function will output warnings to make sure you are including the headers
@@ -766,7 +840,7 @@ def CheckForIncludeWhatYouUse(state: _CppLintState, filename: str, clean_lines: 
 
     for linenum in range(clean_lines.NumLines()):
         line = clean_lines.elided[linenum]
-        if not line or line[0] == '#':
+        if not line or line[0] == "#":
             continue
 
         # String is special -- it is a non-templatized type in STL.
@@ -774,16 +848,16 @@ def CheckForIncludeWhatYouUse(state: _CppLintState, filename: str, clean_lines: 
         if matched:
             # Don't warn about strings in non-STL namespaces:
             # (We check only the first match per line; good enough.)
-            prefix = line[:matched.start()]
-            if prefix.endswith('std::') or not prefix.endswith('::'):
-                required['<string>'] = (linenum, 'string')
+            prefix = line[: matched.start()]
+            if prefix.endswith("std::") or not prefix.endswith("::"):
+                required["<string>"] = (linenum, "string")
 
         for pattern, template, header in _re_pattern_headers_maybe_templates:
             if pattern.search(line):
                 required[header] = (linenum, template)
 
         # The following function is just a speed up, no semantics are changed.
-        if not '<' in line:  # Reduces the cpu time usage by skipping lines.
+        if "<" not in line:  # Reduces the cpu time usage by skipping lines.
             continue
 
         for pattern, template, header in _re_pattern_templates:
@@ -791,15 +865,14 @@ def CheckForIncludeWhatYouUse(state: _CppLintState, filename: str, clean_lines: 
             if matched:
                 # Don't warn about IWYU in non-STL namespaces:
                 # (We check only the first match per line; good enough.)
-                prefix = line[:matched.start()]
-                if prefix.endswith('std::') or not prefix.endswith('::'):
+                prefix = line[: matched.start()]
+                if prefix.endswith("std::") or not prefix.endswith("::"):
                     required[header] = (linenum, template)
 
     # The policy is that if you #include something in foo.h you don't need to
     # include it again in foo.cc. Here, we will look at possible includes.
     # Let's flatten the include_state include_list and copy it into a dictionary.
-    include_dict = dict([item for sublist in include_state.include_list
-                         for item in sublist])
+    include_dict = dict([item for sublist in include_state.include_list for item in sublist])
 
     # Did we find the header for this file (if any) and successfully load it?
     header_found = False
@@ -814,7 +887,7 @@ def CheckForIncludeWhatYouUse(state: _CppLintState, filename: str, clean_lines: 
     # found.
     # e.g. If the file name is 'foo_flymake.cc', we should search for 'foo.h'
     # instead of 'foo_flymake.h'
-    abs_filename = re.sub(r'_flymake\.cc$', '.cc', abs_filename)
+    abs_filename = re.sub(r"_flymake\.cc$", ".cc", abs_filename)
 
     # include_dict is modified during iteration, so we iterate over a copy of
     # the keys.
@@ -832,20 +905,26 @@ def CheckForIncludeWhatYouUse(state: _CppLintState, filename: str, clean_lines: 
     # not having the .h file means there isn't one.
     if not header_found:
         for extension in state.GetNonHeaderExtensions():
-            if filename.endswith('.' + extension):
+            if filename.endswith("." + extension):
                 return
 
     # All the lines have been processed, report the errors found.
     for required_header_unstripped in sorted(required, key=required.__getitem__):
         template = required[required_header_unstripped][1]
         if required_header_unstripped.strip('<>"') not in include_dict:
-            error(state, filename, required[required_header_unstripped][0],
-                  'build/include_what_you_use', 4,
-                  'Add #include ' + required_header_unstripped + ' for ' + template)
+            error(
+                state,
+                filename,
+                required[required_header_unstripped][0],
+                "build/include_what_you_use",
+                4,
+                "Add #include " + required_header_unstripped + " for " + template,
+            )
 
 
 # Returns true if we are at a new block, and it is directly
 # inside of a namespace.
+
 
 def FlagCxx11Features(state, filename, clean_lines, linenum, error):
     """Flag those c++11 features that we only allow in certain places.
@@ -861,46 +940,74 @@ def FlagCxx11Features(state, filename, clean_lines, linenum, error):
     include = Match(r'\s*#\s*include\s+[<"]([^<"]+)[">]', line)
 
     # Flag unapproved C++ TR1 headers.
-    if include and include.group(1).startswith('tr1/'):
-        error(state, filename, linenum, 'build/c++tr1', 5,
-              ('C++ TR1 headers such as <%s> are unapproved.') % include.group(1))
+    if include and include.group(1).startswith("tr1/"):
+        error(
+            state,
+            filename,
+            linenum,
+            "build/c++tr1",
+            5,
+            ("C++ TR1 headers such as <%s> are unapproved.") % include.group(1),
+        )
 
     # Flag unapproved C++11 headers.
-    if include and include.group(1) in ('cfenv',
-                                        'condition_variable',
-                                        'fenv.h',
-                                        'future',
-                                        'mutex',
-                                        'thread',
-                                        'chrono',
-                                        'ratio',
-                                        'regex',
-                                        'system_error',
-                                        ):
-        error(state, filename, linenum, 'build/c++11', 5,
-              ('<%s> is an unapproved C++11 header.') % include.group(1))
+    if include and include.group(1) in (
+        "cfenv",
+        "condition_variable",
+        "fenv.h",
+        "future",
+        "mutex",
+        "thread",
+        "chrono",
+        "ratio",
+        "regex",
+        "system_error",
+    ):
+        error(
+            state,
+            filename,
+            linenum,
+            "build/c++11",
+            5,
+            ("<%s> is an unapproved C++11 header.") % include.group(1),
+        )
 
     # The only place where we need to worry about C++11 keywords and library
     # features in preprocessor directives is in macro definitions.
-    if Match(r'\s*#', line) and not Match(r'\s*#\s*define\b', line): return
+    if Match(r"\s*#", line) and not Match(r"\s*#\s*define\b", line):
+        return
 
     # These are classes and free functions.  The classes are always
     # mentioned as std::*, but we only catch the free functions if
     # they're not found by ADL.  They're alphabetical by header.
     for top_name in (
         # type_traits
-        'alignment_of',
-        'aligned_union',
+        "alignment_of",
+        "aligned_union",
     ):
-        if Search(r'\bstd::%s\b' % top_name, line):
-            error(state, filename, linenum, 'build/c++11', 5,
-                  ('std::%s is an unapproved C++11 class or function.  Send c-style '
-                   'an example of where it would make your code more readable, and '
-                   'they may let you use it.') % top_name)
+        if Search(r"\bstd::%s\b" % top_name, line):
+            error(
+                state,
+                filename,
+                linenum,
+                "build/c++11",
+                5,
+                (
+                    "std::%s is an unapproved C++11 class or function.  Send c-style "
+                    "an example of where it would make your code more readable, and "
+                    "they may let you use it."
+                )
+                % top_name,
+            )
 
 
-def FlagCxx14Features(state: _CppLintState, filename: str,
-                      clean_lines: CleansedLines, linenum: int, error: ErrorLogger):
+def FlagCxx14Features(
+    state: LintState,
+    filename: str,
+    clean_lines: CleansedLines,
+    linenum: int,
+    error: ErrorLogger,
+):
     """Flag those C++14 features that we restrict.
 
     Args:
@@ -914,14 +1021,25 @@ def FlagCxx14Features(state: _CppLintState, filename: str,
     include = Match(r'\s*#\s*include\s+[<"]([^<"]+)[">]', line)
 
     # Flag unapproved C++14 headers.
-    if include and include.group(1) in ('scoped_allocator', 'shared_mutex'):
-        error(state, filename, linenum, 'build/c++14', 5,
-              ('<%s> is an unapproved C++14 header.') % include.group(1))
+    if include and include.group(1) in ("scoped_allocator", "shared_mutex"):
+        error(
+            state,
+            filename,
+            linenum,
+            "build/c++14",
+            5,
+            ("<%s> is an unapproved C++14 header.") % include.group(1),
+        )
 
 
-def ProcessFileData(state: _CppLintState, filename: str, file_extension: str, lines: list[str],
-                    error: ErrorLogger,
-                    extra_check_functions=None) -> None:
+def ProcessFileData(
+    state: LintState,
+    filename: str,
+    file_extension: str,
+    lines: list[str],
+    error: ErrorLogger,
+    extra_check_functions=None,
+) -> None:
     """Performs lint checks and reports any errors to the given error function.
 
     Args:
@@ -936,8 +1054,11 @@ def ProcessFileData(state: _CppLintState, filename: str, file_extension: str, li
                              run on each source line. Each function takes 4
                              arguments: filename, clean_lines, line, error
     """
-    lines = (['// marker so line numbers and indices both start at 1'] + lines +
-             ['// marker so line numbers end in a known way'])
+    lines = (
+        ["// marker so line numbers and indices both start at 1"]
+        + lines
+        + ["// marker so line numbers end in a known way"]
+    )
 
     include_state = _IncludeState()
     function_state = _FunctionState()
@@ -954,9 +1075,18 @@ def ProcessFileData(state: _CppLintState, filename: str, file_extension: str, li
         CheckForHeaderGuard(state, filename, clean_lines, error)
 
     for line in range(clean_lines.NumLines()):
-        ProcessLine(state, filename, file_extension, clean_lines, line,
-                    include_state, function_state, nesting_state, error,
-                    extra_check_functions)
+        ProcessLine(
+            state,
+            filename,
+            file_extension,
+            clean_lines,
+            line,
+            include_state,
+            function_state,
+            nesting_state,
+            error,
+            extra_check_functions,
+        )
         FlagCxx11Features(state, filename, clean_lines, line, error)
     nesting_state.CheckCompletedBlocks(state, filename, error)
 

@@ -1,18 +1,19 @@
 import math
 
-from ._cpplintstate import _CppLintState
+from .lintstate import LintState
 from .regex import Match
+
 
 class _FunctionState(object):
     """Tracks current function name and the number of lines in its body."""
 
     _NORMAL_TRIGGER = 250  # for --v=0, 500 for --v=1, etc.
-    _TEST_TRIGGER = 400    # about 50% more than _NORMAL_TRIGGER.
+    _TEST_TRIGGER = 400  # about 50% more than _NORMAL_TRIGGER.
 
     def __init__(self):
         self.in_a_function = False
         self.lines_in_function = 0
-        self.current_function = ''
+        self.current_function = ""
 
     def Begin(self, function_name):
         """Start analyzing function body.
@@ -29,7 +30,7 @@ class _FunctionState(object):
         if self.in_a_function:
             self.lines_in_function += 1
 
-    def Check(self, state: _CppLintState, error, filename, linenum):
+    def Check(self, state: LintState, error, filename, linenum):
         """Report if too many lines in function body.
 
         Args:
@@ -40,7 +41,7 @@ class _FunctionState(object):
         if not self.in_a_function:
             return
 
-        if Match(r'T(EST|est)', self.current_function):
+        if Match(r"T(EST|est)", self.current_function):
             base_trigger = self._TEST_TRIGGER
         else:
             base_trigger = self._NORMAL_TRIGGER
@@ -51,12 +52,17 @@ class _FunctionState(object):
             # 50 => 0, 100 => 1, 200 => 2, 400 => 3, 800 => 4, 1600 => 5, ...
             if error_level > 5:
                 error_level = 5
-            error(state, filename, linenum, 'readability/fn_size', error_level,
-                  'Small and focused functions are preferred:'
-                  f' {self.current_function } has {self.lines_in_function} non-comment lines'
-                  f' (error triggered by exceeding {trigger} lines).')
+            error(
+                state,
+                filename,
+                linenum,
+                "readability/fn_size",
+                error_level,
+                "Small and focused functions are preferred:"
+                f" {self.current_function } has {self.lines_in_function} non-comment lines"
+                f" (error triggered by exceeding {trigger} lines).",
+            )
 
     def End(self):
         """Stop analyzing function body."""
         self.in_a_function = False
-

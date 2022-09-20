@@ -1,11 +1,11 @@
 import os
 import pathlib
 
-from ._cpplintstate import _CppLintState
 
 def _IsExtension(extension: str, extensions: list[str]):
     """File extension (excluding dot) matches a file extension."""
     return extension in extensions
+
 
 class FileInfo(object):
     """Provides utility functions for filenames.
@@ -20,7 +20,7 @@ class FileInfo(object):
 
     def FullName(self):
         """Make Windows paths like Unix."""
-        return os.path.abspath(self._filename).replace('\\', '/')
+        return os.path.abspath(self._filename).replace("\\", "/")
 
     def RepositoryName(self, repository: str):
         r"""FullName after removing the local path to the repository.
@@ -45,7 +45,7 @@ class FileInfo(object):
                 while os.path.exists(root_dir):
                     # allow case insensitive compare on Windows
                     if os.path.normcase(root_dir) == os.path.normcase(repo):
-                        return os.path.relpath(fullname, root_dir).replace('\\', '/')
+                        return os.path.relpath(fullname, root_dir).replace("\\", "/")
                     one_up_dir = os.path.dirname(root_dir)
                     if one_up_dir == root_dir:
                         break
@@ -61,23 +61,27 @@ class FileInfo(object):
                     one_up_dir = os.path.dirname(one_up_dir)
 
                 prefix = os.path.commonprefix([root_dir, project_dir])
-                return fullname[len(prefix) + 1:]
+                return fullname[len(prefix) + 1 :]
 
             # Not SVN <= 1.6? Try to find a git, hg, or svn top level directory by
             # searching up from the current path.
             root_dir = current_dir = os.path.dirname(fullname)
             while current_dir != os.path.dirname(current_dir):
-                if (os.path.exists(os.path.join(current_dir, ".git")) or
-                    os.path.exists(os.path.join(current_dir, ".hg")) or
-                    os.path.exists(os.path.join(current_dir, ".svn"))):
+                if (
+                    os.path.exists(os.path.join(current_dir, ".git"))
+                    or os.path.exists(os.path.join(current_dir, ".hg"))
+                    or os.path.exists(os.path.join(current_dir, ".svn"))
+                ):
                     root_dir = current_dir
                 current_dir = os.path.dirname(current_dir)
 
-            if (os.path.exists(os.path.join(root_dir, ".git")) or
-                os.path.exists(os.path.join(root_dir, ".hg")) or
-                os.path.exists(os.path.join(root_dir, ".svn"))):
+            if (
+                os.path.exists(os.path.join(root_dir, ".git"))
+                or os.path.exists(os.path.join(root_dir, ".hg"))
+                or os.path.exists(os.path.join(root_dir, ".svn"))
+            ):
                 prefix = os.path.commonprefix([root_dir, project_dir])
-                return fullname[len(prefix) + 1:]
+                return fullname[len(prefix) + 1 :]
 
         # Don't know what to do; header guard warnings may be wrong...
         # warnings.warn("Cannot determine repository root, header guard checks may be wrong", RuntimeWarning)
@@ -94,6 +98,7 @@ class FileInfo(object):
     def IsExtension(self, extensions: list[str]) -> bool:
         """File has a source file extension."""
         return _IsExtension(self.Extension()[1:], extensions)
+
 
 def PathSplitToList(path):
     """Returns the path split into a list by the separator.

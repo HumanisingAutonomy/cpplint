@@ -1,14 +1,12 @@
 import pytest
 
-from .base_case import CpplintTestBase
-from halint._cpplintstate import _CppLintState
-
 from halint.function_state import _FunctionState
-from halint.check_line import CheckForFunctionLengths
+from halint.lintstate import LintState
+
+from .base_case import CpplintTestBase
 
 
 class TestCheckForFunctionLengths(CpplintTestBase):
-
     @pytest.fixture(autouse=True)
     def setUp(self):
         # Reducing these thresholds for the tests speeds up tests significantly.
@@ -20,7 +18,7 @@ class TestCheckForFunctionLengths(CpplintTestBase):
 
         yield
 
-        ## teardown
+        # teardown
         _FunctionState._NORMAL_TRIGGER = self.old_normal_trigger
         _FunctionState._TEST_TRIGGER = self.old_test_trigger
 
@@ -65,90 +63,80 @@ class TestCheckForFunctionLengths(CpplintTestBase):
         trigger_level = self.TriggerLines(state.verbose_level)
         self.TestFunctionLengthsCheck(
             state,
-            'void test(int x)' + self.FunctionBody(lines),
-            ('Small and focused functions are preferred: '
-             'test() has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]'
-             % (lines, trigger_level, error_level)))
+            "void test(int x)" + self.FunctionBody(lines),
+            (
+                "Small and focused functions are preferred: "
+                "test() has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]" % (lines, trigger_level, error_level)
+            ),
+        )
 
-    def TestFunctionLengthCheckDefinitionOK(self, state: _CppLintState, lines: str):
+    def TestFunctionLengthCheckDefinitionOK(self, state: LintState, lines: str):
         """Generate shorter function definition and check no warning is produced.
 
         Args:
           lines: Number of lines to generate.
         """
-        self.TestFunctionLengthsCheck(state,
-            'void test(int x)' + self.FunctionBody(lines),
-            '')
+        self.TestFunctionLengthsCheck(state, "void test(int x)" + self.FunctionBody(lines), "")
 
-    def TestFunctionLengthCheckAtErrorLevel(self, state: _CppLintState, error_level: int):
+    def TestFunctionLengthCheckAtErrorLevel(self, state: LintState, error_level: int):
         """Generate and check function at the trigger level for --v setting.
 
         Args:
           error_level: --v setting for
         """
-        self.TestFunctionLengthCheckDefinition(state, self.TriggerLines(error_level),
-                                               error_level)
+        self.TestFunctionLengthCheckDefinition(state, self.TriggerLines(error_level), error_level)
 
-    def TestFunctionLengthCheckBelowErrorLevel(self, state: _CppLintState,  error_level: int):
+    def TestFunctionLengthCheckBelowErrorLevel(self, state: LintState, error_level: int):
         """Generate and check function just below the trigger level for --v setting.
 
         Args:
           error_level: --v setting for
         """
-        self.TestFunctionLengthCheckDefinition(state, self.TriggerLines(error_level)-1,
-                                               error_level-1)
+        self.TestFunctionLengthCheckDefinition(state, self.TriggerLines(error_level) - 1, error_level - 1)
 
-    def TestFunctionLengthCheckAboveErrorLevel(self, state: _CppLintState, error_level):
+    def TestFunctionLengthCheckAboveErrorLevel(self, state: LintState, error_level):
         """Generate and check function just above the trigger level for --v setting.
 
         Args:
           error_level: --v setting for
         """
-        self.TestFunctionLengthCheckDefinition(state, self.TriggerLines(error_level)+1,
-                                               error_level)
+        self.TestFunctionLengthCheckDefinition(state, self.TriggerLines(error_level) + 1, error_level)
 
     def FunctionBody(self, number_of_lines):
-        return ' {\n' + '    this_is_just_a_test();\n'*number_of_lines + '}'
+        return " {\n" + "    this_is_just_a_test();\n" * number_of_lines + "}"
 
     def FunctionBodyWithBlankLines(self, number_of_lines):
-        return ' {\n' + '    this_is_just_a_test();\n\n'*number_of_lines + '}'
+        return " {\n" + "    this_is_just_a_test();\n\n" * number_of_lines + "}"
 
     def FunctionBodyWithNoLints(self, number_of_lines):
-        return (' {\n' +
-                '    this_is_just_a_test();  // NOLINT\n'*number_of_lines + '}')
+        return " {\n" + "    this_is_just_a_test();  // NOLINT\n" * number_of_lines + "}"
 
     # Test line length checks.
     def testFunctionLengthCheckDeclaration(self, state):
-        self.TestFunctionLengthsCheck(
-            state,
-            'void test();',  # Not a function definition
-            '')
+        self.TestFunctionLengthsCheck(state, "void test();", "")  # Not a function definition
 
     def testFunctionLengthCheckDeclarationWithBlockFollowing(self, state):
         self.TestFunctionLengthsCheck(
             state,
-            ('void test();\n'
-             + self.FunctionBody(66)),  # Not a function definition
-            '')
+            ("void test();\n" + self.FunctionBody(66)),  # Not a function definition
+            "",
+        )
 
     def testFunctionLengthCheckClassDefinition(self, state):
         self.TestFunctionLengthsCheck(
             state,
             # Not a function definition
-            'class Test' + self.FunctionBody(66) + ';',
-            '')
+            "class Test" + self.FunctionBody(66) + ";",
+            "",
+        )
 
     def testFunctionLengthCheckTrivial(self, state):
-        self.TestFunctionLengthsCheck(state,
-            'void test() {}',  # Not counted
-            '')
+        self.TestFunctionLengthsCheck(state, "void test() {}", "")  # Not counted
 
     def testFunctionLengthCheckEmpty(self, state):
-        self.TestFunctionLengthsCheck(state,
-            'void test() {\n}',
-            '')
+        self.TestFunctionLengthsCheck(state, "void test() {\n}", "")
 
     def testFunctionLengthCheckDefinitionSeverity1PlusBlanks(self, state):
         error_level = 1
@@ -156,54 +144,71 @@ class TestCheckForFunctionLengths(CpplintTestBase):
         trigger_level = self.TriggerLines(state.verbose_level)
         self.TestFunctionLengthsCheck(
             state,
-            'void test_blanks(int x)' + self.FunctionBody(error_lines),
-            ('Small and focused functions are preferred: '
-             'test_blanks() has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]')
-            % (error_lines, trigger_level, error_level))
+            "void test_blanks(int x)" + self.FunctionBody(error_lines),
+            (
+                "Small and focused functions are preferred: "
+                "test_blanks() has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]"
+            )
+            % (error_lines, trigger_level, error_level),
+        )
 
     def testFunctionLengthCheckComplexDefinitionSeverity1(self, state):
         error_level = 1
         error_lines = self.TriggerLines(error_level) + 1
         trigger_level = self.TriggerLines(state.verbose_level)
-        self.TestFunctionLengthsCheck(state,
-            ('my_namespace::my_other_namespace::MyVeryLongTypeName*\n'
-             'my_namespace::my_other_namespace::MyFunction(int arg1, char* arg2)'
-             + self.FunctionBody(error_lines)),
-            ('Small and focused functions are preferred: '
-             'my_namespace::my_other_namespace::MyFunction()'
-             ' has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]')
-            % (error_lines, trigger_level, error_level))
+        self.TestFunctionLengthsCheck(
+            state,
+            (
+                "my_namespace::my_other_namespace::MyVeryLongTypeName*\n"
+                "my_namespace::my_other_namespace::MyFunction(int arg1, char* arg2)" + self.FunctionBody(error_lines)
+            ),
+            (
+                "Small and focused functions are preferred: "
+                "my_namespace::my_other_namespace::MyFunction()"
+                " has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]"
+            )
+            % (error_lines, trigger_level, error_level),
+        )
 
     def testFunctionLengthCheckDefinitionSeverity1ForTest(self, state):
         error_level = 1
         error_lines = self.TestLines(error_level) + 1
         trigger_level = self.TestLines(state.verbose_level)
-        self.TestFunctionLengthsCheck(state,
-            'TEST_F(Test, Mutator)' + self.FunctionBody(error_lines),
-            ('Small and focused functions are preferred: '
-             'TEST_F(Test, Mutator) has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]')
-            % (error_lines, trigger_level, error_level))
+        self.TestFunctionLengthsCheck(
+            state,
+            "TEST_F(Test, Mutator)" + self.FunctionBody(error_lines),
+            (
+                "Small and focused functions are preferred: "
+                "TEST_F(Test, Mutator) has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]"
+            )
+            % (error_lines, trigger_level, error_level),
+        )
 
     def testFunctionLengthCheckDefinitionSeverity1ForSplitLineTest(self, state):
         error_level = 1
         error_lines = self.TestLines(error_level) + 1
         trigger_level = self.TestLines(state.verbose_level)
-        self.TestFunctionLengthsCheck(state,
-            ('TEST_F(GoogleUpdateRecoveryRegistryProtectedTest,\n'
-             '    FixGoogleUpdate_AllValues_MachineApp)'  # note: 4 spaces
-             + self.FunctionBody(error_lines)),
-            ('Small and focused functions are preferred: '
-             'TEST_F(GoogleUpdateRecoveryRegistryProtectedTest, '  # 1 space
-             'FixGoogleUpdate_AllValues_MachineApp) has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]')
-            % (error_lines+1, trigger_level, error_level))
+        self.TestFunctionLengthsCheck(
+            state,
+            (
+                "TEST_F(GoogleUpdateRecoveryRegistryProtectedTest,\n"
+                "    FixGoogleUpdate_AllValues_MachineApp)" + self.FunctionBody(error_lines)  # note: 4 spaces
+            ),
+            (
+                "Small and focused functions are preferred: "
+                "TEST_F(GoogleUpdateRecoveryRegistryProtectedTest, "  # 1 space
+                "FixGoogleUpdate_AllValues_MachineApp) has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]"
+            )
+            % (error_lines + 1, trigger_level, error_level),
+        )
 
     def testFunctionLengthCheckDefinitionSeverity1ForBadTestDoesntBreak(self, state):
         error_level = 1
@@ -211,46 +216,52 @@ class TestCheckForFunctionLengths(CpplintTestBase):
         trigger_level = self.TestLines(state.verbose_level)
         self.TestFunctionLengthsCheck(
             state,
-            ('TEST_F('
-             + self.FunctionBody(error_lines)),
-            ('Small and focused functions are preferred: '
-             'TEST_F has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]')
-            % (error_lines, trigger_level, error_level))
+            ("TEST_F(" + self.FunctionBody(error_lines)),
+            (
+                "Small and focused functions are preferred: "
+                "TEST_F has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]"
+            )
+            % (error_lines, trigger_level, error_level),
+        )
 
     def testFunctionLengthCheckDefinitionSeverity1WithEmbeddedNoLints(self, state):
         error_level = 1
-        error_lines = self.TriggerLines(error_level)+1
+        error_lines = self.TriggerLines(error_level) + 1
         trigger_level = self.TriggerLines(state.verbose_level)
         self.TestFunctionLengthsCheck(
             state,
-            'void test(int x)' + self.FunctionBodyWithNoLints(error_lines),
-            ('Small and focused functions are preferred: '
-             'test() has %d non-comment lines '
-             '(error triggered by exceeding %d lines).'
-             '  [readability/fn_size] [%d]')
-            % (error_lines, trigger_level, error_level))
+            "void test(int x)" + self.FunctionBodyWithNoLints(error_lines),
+            (
+                "Small and focused functions are preferred: "
+                "test() has %d non-comment lines "
+                "(error triggered by exceeding %d lines)."
+                "  [readability/fn_size] [%d]"
+            )
+            % (error_lines, trigger_level, error_level),
+        )
 
     def testFunctionLengthCheckDefinitionSeverity1WithNoLint(self, state):
-        self.TestFunctionLengthsCheck(state,
-            ('void test(int x)' + self.FunctionBody(self.TriggerLines(1))
-             + '  // NOLINT -- long function'),
-            '')
+        self.TestFunctionLengthsCheck(
+            state,
+            ("void test(int x)" + self.FunctionBody(self.TriggerLines(1)) + "  // NOLINT -- long function"),
+            "",
+        )
 
     # @pytest.mark.parametrize("function, severity", [TestCheckForFunctionLengths.Test])
     # def testFunctionLengthCheckDefinition(self, state, function, severity):
 
     def testFunctionLengthCheckDefinitionBelowSeverity0(self, state):
         state.verbose_level = 0
-        self.TestFunctionLengthCheckDefinitionOK(state, self.TriggerLines(0)-1)
+        self.TestFunctionLengthCheckDefinitionOK(state, self.TriggerLines(0) - 1)
 
     def testFunctionLengthCheckDefinitionAtSeverity0(self, state):
         state.verbose_level = 0
         self.TestFunctionLengthCheckDefinitionOK(state, self.TriggerLines(0))
 
     def testFunctionLengthCheckDefinitionBelowSeverity1(self, state):
-        self.TestFunctionLengthCheckDefinitionOK(state, self.TriggerLines(1)-1)
+        self.TestFunctionLengthCheckDefinitionOK(state, self.TriggerLines(1) - 1)
 
     def testFunctionLengthCheckDefinitionAtSeverity1(self, state):
         self.TestFunctionLengthCheckDefinitionOK(state, self.TriggerLines(1))
@@ -258,7 +269,7 @@ class TestCheckForFunctionLengths(CpplintTestBase):
     def testFunctionLengthCheckDefinitionAboveSeverity1(self, state):
         self.TestFunctionLengthCheckAboveErrorLevel(state, 1)
 
-    @pytest.mark.parametrize("level", range(2,5))
+    @pytest.mark.parametrize("level", range(2, 5))
     def testFunctionLengthCheckDefinition(self, state, level):
         self.TestFunctionLengthCheckAboveErrorLevel(state, level)
         self.TestFunctionLengthCheckAtErrorLevel(state, level)
@@ -270,35 +281,28 @@ class TestCheckForFunctionLengths(CpplintTestBase):
 
     def testFunctionLengthNotDeterminable(self, state):
         # Macro invocation without terminating semicolon.
-        self.TestFunctionLengthsCheck(
-            state,
-            'MACRO(arg)',
-            '')
+        self.TestFunctionLengthsCheck(state, "MACRO(arg)", "")
 
         # Macro with underscores
-        self.TestFunctionLengthsCheck(
-            state,
-            'MACRO_WITH_UNDERSCORES(arg1, arg2, arg3)',
-            '')
+        self.TestFunctionLengthsCheck(state, "MACRO_WITH_UNDERSCORES(arg1, arg2, arg3)", "")
 
         self.TestFunctionLengthsCheck(
             state,
-            'NonMacro(arg)',
-            'Lint failed to find start of function body.'
-            '  [readability/fn_size] [5]')
+            "NonMacro(arg)",
+            "Lint failed to find start of function body." "  [readability/fn_size] [5]",
+        )
 
     def testFunctionLengthCheckWithNamespace(self, state):
         old_verbosity = state.verbose_level
         state.verbose_level = 0
         self.TestFunctionLengthsCheck(
             state,
-            ('namespace {\n'
-             'void CodeCoverageCL35256059() {\n' +
-             ('  X++;\n' * 3000) +
-             '}\n'
-             '}  // namespace\n'),
-            ('Small and focused functions are preferred: '
-             'CodeCoverageCL35256059() has 3000 non-comment lines '
-             '(error triggered by exceeding 10 lines).'
-             '  [readability/fn_size] [5]'))
+            ("namespace {\n" "void CodeCoverageCL35256059() {\n" + ("  X++;\n" * 3000) + "}\n" "}  // namespace\n"),
+            (
+                "Small and focused functions are preferred: "
+                "CodeCoverageCL35256059() has 3000 non-comment lines "
+                "(error triggered by exceeding 10 lines)."
+                "  [readability/fn_size] [5]"
+            ),
+        )
         state.verbose_level = old_verbosity

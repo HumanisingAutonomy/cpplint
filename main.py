@@ -1,14 +1,14 @@
 import codecs
 import sys
 
-from halint import ParseArguments, ProcessFile
+from halint import parse_arguments, process_file
 from halint._cpplintstate import _CppLintState
 
 
 
 def main():
   state = _CppLintState()
-  filenames = ParseArguments(state, sys.argv[1:])
+  filenames = parse_arguments(state, sys.argv[1:])
   backup_err = sys.stderr
   try:
     # Change stderr to write with replacement characters so we don't die
@@ -17,7 +17,7 @@ def main():
 
     state.ResetErrorCounts()
     for filename in filenames:
-      ProcessFile(state, filename, state.verbose_level)
+      process_file(state, filename, state.verbose_level)
     # If --quiet is passed, suppress printing error count unless there are errors.
     if not state.quiet or state.error_count > 0:
       state.PrintErrorCounts()

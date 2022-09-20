@@ -219,30 +219,30 @@ Syntax: cpplint.py [--verbose=#] [--output=emacs|eclipse|vs7|junit|sed|gsed]
     file is located) and all sub-directories.
 """
 
-def ProcessHppHeadersOption(state, val):
+def process_hpp_headers_option(state, val):
     try:
         state._hpp_headers = {ext.strip() for ext in val.split(',')}
     except ValueError:
-        PrintUsage('Header extensions must be comma separated list.')
+        print_usage('Header extensions must be comma separated list.')
 
-def ProcessIncludeOrderOption(state, val):
+def process_include_order_option(state, val):
     if val is None or val == "default":
         pass
     elif val == "standardcfirst":
         state._include_order = val
     else:
-        PrintUsage('Invalid includeorder value %s. Expected default|standardcfirst')
+        print_usage('Invalid includeorder value %s. Expected default|standardcfirst')
 
-def ProcessExtensionsOption(state: _CppLintState, val):
+def process_extensions_option(state: _CppLintState, val):
     try:
         extensions = [ext.strip() for ext in val.split(',')]
         state._valid_extensions = set(extensions)
     except ValueError:
-        PrintUsage('Extensions should be a comma-separated list of values;'
+        print_usage('Extensions should be a comma-separated list of values;'
                    'for example: extensions=hpp,cpp\n'
                    'This could not be parsed: "%s"' % (val,))
 
-def PrintUsage(state: _CppLintState, message):
+def print_usage(state: _CppLintState, message):
     """Prints a brief usage string and exits, optionally with an error message.
 
     Args:
@@ -258,14 +258,14 @@ def PrintUsage(state: _CppLintState, message):
     else:
         sys.exit(0)
 
-def PrintVersion():
+def print_version():
     sys.stdout.write('Cpplint fork (https://github.com/cpplint/cpplint)\n')
     # TODO: fix printing version number
     sys.stdout.write('cpplint ' + "FIXME" + '\n')
     sys.stdout.write('Python ' + sys.version + '\n')
     sys.exit(0)
 
-def PrintCategories():
+def print_categories():
     """Prints a list of all the error-categories used by error messages.
 
     These are the categories used to filter messages via --filter.
@@ -287,7 +287,7 @@ def parse_filters(filter_string: str) -> list[str]:
                                 ' (%s does not)' % filter)
     return filters
 
-def _IsParentOrSame(parent, child):
+def _is_parent_or_same(parent, child):
     """Return true if child is subdirectory of parent.
     Assumes both paths are absolute and don't contain symlinks.
     """
@@ -305,7 +305,7 @@ def _IsParentOrSame(parent, child):
     child_suffix = child_suffix.lstrip(os.sep)
     return child == os.path.join(prefix, child_suffix)
 
-def ParseArguments(state: _CppLintState, args):
+def parse_arguments(state: _CppLintState, args):
     """Parses the command line arguments.
 
     This may set the output format and verbosity level as side-effects.
@@ -332,7 +332,7 @@ def ParseArguments(state: _CppLintState, args):
                                                      'includeorder=',
                                                      'quiet'])
     except getopt.GetoptError:
-        PrintUsage(state, 'Invalid arguments.')
+        print_usage(state, 'Invalid arguments.')
 
     verbosity = state.verbose_level
     output_format = state.output_format
@@ -347,12 +347,12 @@ def ParseArguments(state: _CppLintState, args):
 
     for (opt, val) in opts:
         if opt == '--help':
-            PrintUsage(state, None)
+            print_usage(state, None)
         if opt == '--version':
-            PrintVersion()
+            print_version()
         elif opt == '--output':
             if val not in ('emacs', 'vs7', 'eclipse', 'junit', 'sed', 'gsed'):
-                PrintUsage(state, 'The only allowed output formats are emacs, vs7, eclipse '
+                print_usage(state, 'The only allowed output formats are emacs, vs7, eclipse '
                            'sed, gsed and junit.')
             output_format = val
         elif opt == '--quiet':
@@ -362,10 +362,10 @@ def ParseArguments(state: _CppLintState, args):
         elif opt == '--filter':
             filters = val
             if not filters:
-                PrintCategories()
+                print_categories()
         elif opt == '--counting':
             if val not in ('total', 'toplevel', 'detailed'):
-                PrintUsage(state, 'Valid counting options are total, toplevel, and detailed')
+                print_usage(state, 'Valid counting options are total, toplevel, and detailed')
             counting_style = val
         elif opt == '--root':
             root = val
@@ -375,30 +375,30 @@ def ParseArguments(state: _CppLintState, args):
             try:
                 line_length = int(val)
             except ValueError:
-                PrintUsage(state, 'Line length must be digits.')
+                print_usage(state, 'Line length must be digits.')
         elif opt == '--exclude':
             excludes = set()
             excludes.update(glob.glob(val))
         elif opt == '--extensions':
-            ProcessExtensionsOption(state, val)
+            process_extensions_option(state, val)
         elif opt == '--headers':
-            ProcessHppHeadersOption(state, val)
+            process_hpp_headers_option(state, val)
         elif opt == '--recursive':
             recursive = True
         elif opt == '--includeorder':
-            ProcessIncludeOrderOption(state, val)
+            process_include_order_option(state, val)
 
     if excludes:
         state._excludes.update(excludes)
 
     if not filenames:
-        PrintUsage(state, 'No files were specified.')
+        print_usage(state, 'No files were specified.')
 
     if recursive:
-        filenames = _ExpandDirectories(state, filenames)
+        filenames = _expand_directories(state, filenames)
 
     if len(state._excludes) > 0:
-        filenames = _FilterExcludedFiles(state, filenames)
+        filenames = _filter_excluded_files(state, filenames)
 
 
     state.output_format = output_format
@@ -413,7 +413,7 @@ def ParseArguments(state: _CppLintState, args):
     filenames.sort()
     return filenames
 
-def _ExpandDirectories(state, filenames):
+def _expand_directories(state, filenames):
     """Searches a list of filenames and replaces directories in the list with
     all files descending from those directories. Files with extensions not in
     the valid extensions list are excluded.
@@ -444,7 +444,7 @@ def _ExpandDirectories(state, filenames):
             filtered.append(filename)
     return filtered
 
-def _FilterExcludedFiles(state, fnames):
+def _filter_excluded_files(state, fnames):
     """Filters out files listed in the --exclude command line switch. File paths
     in the switch are evaluated relative to the current working directory
     """
@@ -452,9 +452,9 @@ def _FilterExcludedFiles(state, fnames):
     # because globbing does not work recursively, exclude all subpath of all excluded entries
     return [f for f in fnames
             if not any(e for e in exclude_paths
-                    if _IsParentOrSame(e, os.path.abspath(f)))]
+                    if _is_parent_or_same(e, os.path.abspath(f)))]
 
-def ProcessFile(state: _CppLintState, filename, vlevel, extra_check_functions=None):
+def process_file(state: _CppLintState, filename, vlevel, extra_check_functions=None):
     """Does google-lint on a single file.
 
     Args:
@@ -543,7 +543,7 @@ def ProcessFile(state: _CppLintState, filename, vlevel, extra_check_functions=No
     # Suppress printing anything if --quiet was passed unless the error
     # count has increased after processing this file.
     if not state.quiet or old_errors != state.error_count:
-         state.PrintInfo('Done processing %s\n' % filename)
+        state.PrintInfo('Done processing %s\n' % filename)
     state.restore_filters()
 
 def ProcessConfigOverrides(state, filename):
@@ -606,19 +606,19 @@ def ProcessConfigOverrides(state, filename):
                         try:
                             _line_length = int(val)
                         except ValueError:
-                             state.PrintError('Line length must be numeric.')
+                            state.PrintError('Line length must be numeric.')
                     elif name == 'extensions':
-                        ProcessExtensionsOption(state, val)
+                        process_extensions_option(state, val)
                     elif name == 'root':
                         global _root
                         # root directories are specified relative to CPPLINT.cfg dir.
                         _root = os.path.join(os.path.dirname(cfg_file), val)
                     elif name == 'headers':
-                        ProcessHppHeadersOption(state, val)
+                        process_hpp_headers_option(state, val)
                     elif name == 'includeorder':
-                        ProcessIncludeOrderOption(state, val)
+                        process_include_order_option(state, val)
                     else:
-                         state.PrintError(
+                        state.PrintError(
                             'Invalid configuration option (%s) in file %s\n' %
                             (name, cfg_file))
 

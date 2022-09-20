@@ -2877,7 +2877,7 @@ class TestCpplint(CpplintTestBase):
         self.TestSingleLineLint(state, 'int16 a = 5;\t\t// set a to 5',
                                 'Tab found; better to use spaces  [whitespace/tab] [1]')
 
-    def testParseArguments(self):
+    def testparse_arguments(self):
         old_output_format = cpplint._cpplint_state.output_format
         old_verbose_level = cpplint._cpplint_state.verbose_level
         old_headers = cpplint._cpplint_state._hpp_headers
@@ -2890,71 +2890,71 @@ class TestCpplint(CpplintTestBase):
             sys.stderr = open(os.devnull, 'w')
 
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, [])
+                cli.parse_arguments(cpplint._cpplint_state, [])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--badopt'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--badopt'])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--help'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--help'])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--version'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--version'])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--v=0'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--v=0'])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--filter='])
+                cli.parse_arguments(cpplint._cpplint_state, ['--filter='])
             # This is illegal because all filters must start with + or -
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--filter=foo'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--filter=foo'])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--filter=+a,b,-c'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--filter=+a,b,-c'])
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--headers'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--headers'])
 
-            assert ['foo.cc'] == cli.ParseArguments(cpplint._cpplint_state, ['foo.cc'])
+            assert ['foo.cc'] == cli.parse_arguments(cpplint._cpplint_state, ['foo.cc'])
             assert old_output_format == cpplint._cpplint_state.output_format
             assert old_verbose_level == cpplint._cpplint_state.verbose_level
 
-            assert ['foo.cc'] == cli.ParseArguments(cpplint._cpplint_state, ['--v=1', 'foo.cc'])
+            assert ['foo.cc'] == cli.parse_arguments(cpplint._cpplint_state, ['--v=1', 'foo.cc'])
             assert 1 == cpplint._cpplint_state.verbose_level
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--v=3', 'foo.h'])
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['--v=3', 'foo.h'])
             assert 3 == cpplint._cpplint_state.verbose_level
-            assert ['foo.cpp'] == cli.ParseArguments(cpplint._cpplint_state, ['--verbose=5', 'foo.cpp'])
+            assert ['foo.cpp'] == cli.parse_arguments(cpplint._cpplint_state, ['--verbose=5', 'foo.cpp'])
             assert 5 == cpplint._cpplint_state.verbose_level
             with pytest.raises(ValueError):
-                cli.ParseArguments(cpplint._cpplint_state, ['--v=f', 'foo.cc'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--v=f', 'foo.cc'])
 
-            assert ['foo.cc'] == cli.ParseArguments(cpplint._cpplint_state, ['--output=emacs', 'foo.cc'])
+            assert ['foo.cc'] == cli.parse_arguments(cpplint._cpplint_state, ['--output=emacs', 'foo.cc'])
             assert 'emacs' == cpplint._cpplint_state.output_format
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--output=vs7', 'foo.h'])
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['--output=vs7', 'foo.h'])
             assert 'vs7' == cpplint._cpplint_state.output_format
             with pytest.raises(SystemExit):
-                cli.ParseArguments(cpplint._cpplint_state, ['--output=blah', 'foo.cc'])
+                cli.parse_arguments(cpplint._cpplint_state, ['--output=blah', 'foo.cc'])
 
             filt = '-,+whitespace,-whitespace/indent'
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--filter=' + filt, 'foo.h'])
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['--filter=' + filt, 'foo.h'])
             assert ['-', '+whitespace', '-whitespace/indent'] == cpplint._cpplint_state.filters
 
-            assert ['foo.cc', 'foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['foo.cc', 'foo.h'])
+            assert ['foo.cc', 'foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['foo.cc', 'foo.h'])
 
             cpplint._cpplint_state._hpp_headers = old_headers
             cpplint._cpplint_state._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--linelength=120', 'foo.h'])
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['--linelength=120', 'foo.h'])
             assert 120 == cpplint._cpplint_state._line_length
             assert set(['h', 'hh', 'hpp', 'hxx', 'h++', 'cuh']) == cpplint._cpplint_state.GetHeaderExtensions()
 
             cpplint._cpplint_state._hpp_headers = old_headers
             cpplint._cpplint_state._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--headers=h', 'foo.h'])
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['--headers=h', 'foo.h'])
             assert set(['h', 'c', 'cc', 'cpp', 'cxx', 'c++', 'cu']) == cpplint._cpplint_state.GetAllExtensions()
 
             cpplint._cpplint_state._hpp_headers = old_headers
             cpplint._cpplint_state._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state, ['--extensions=hpp,cpp,cpp', 'foo.h'])
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state, ['--extensions=hpp,cpp,cpp', 'foo.h'])
             assert set(['hpp', 'cpp']) == cpplint._cpplint_state.GetAllExtensions()
             assert set(['hpp']) == cpplint._cpplint_state.GetHeaderExtensions()
 
             cpplint._cpplint_state._hpp_headers = old_headers
             cpplint._cpplint_state._valid_extensions = old_valid_extensions
-            assert ['foo.h'] == cli.ParseArguments(cpplint._cpplint_state,
+            assert ['foo.h'] == cli.parse_arguments(cpplint._cpplint_state,
                                                    ['--extensions=cpp,cpp', '--headers=hpp,h', 'foo.h'])
             assert set(['hpp', 'h']) == cpplint._cpplint_state.GetHeaderExtensions()
             assert set(['hpp', 'h', 'cpp']) == cpplint._cpplint_state.GetAllExtensions()
@@ -2983,7 +2983,7 @@ class TestCpplint(CpplintTestBase):
             expected = ['one.cpp', os.path.join('src', 'two.cpp'),
                         os.path.join('src', 'nested', 'three.cpp')]
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive', 'one.cpp', 'src'])
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['--recursive', 'one.cpp', 'src'])
             assert set(expected) == set(actual)
         finally:
             os.chdir(working_dir)
@@ -3001,7 +3001,7 @@ class TestCpplint(CpplintTestBase):
             os.chdir(temp_dir)
             expected = ['one.cpp', os.path.join('src', 'two.cpp')]
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive', '--extensions=cpp',
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['--recursive', '--extensions=cpp',
                                                                  'one.cpp', 'src'])
             assert set(expected) == set(actual)
         finally:
@@ -3032,22 +3032,22 @@ class TestCpplint(CpplintTestBase):
                 os.path.join('src', 'three.cc')
             ]
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['src'])
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['src'])
             assert set(['src']) == set(actual)
 
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive', 'src'])
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['--recursive', 'src'])
             assert set(expected) == set(actual)
 
             expected = [os.path.join('src', 'one.cc')]
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive',
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['--recursive',
                                                                  '--exclude=src{0}t*'.format(os.sep), 'src'])
             assert set(expected) == set(actual)
 
             expected = [os.path.join('src', 'one.cc')]
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive',
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['--recursive',
                                                                  '--exclude=src/two.cc', '--exclude=src/three.cc',
                                                                  'src'])
             assert set(expected) == set(actual)
@@ -3058,7 +3058,7 @@ class TestCpplint(CpplintTestBase):
                 os.path.join('src2', 'three.cc')
             ])
             cli._excludes = None
-            actual = cli.ParseArguments(cpplint._cpplint_state, ['--recursive',
+            actual = cli.parse_arguments(cpplint._cpplint_state, ['--recursive',
                                                                  '--exclude=src', '.'])
             assert expected == set(actual)
         finally:
@@ -3131,7 +3131,7 @@ class TestCpplint(CpplintTestBase):
 
     def testQuiet(self):
         assert cpplint._cpplint_state.quiet == False
-        cli.ParseArguments(cpplint._cpplint_state, ['--quiet', 'one.cpp'])
+        cli.parse_arguments(cpplint._cpplint_state, ['--quiet', 'one.cpp'])
         assert cpplint._cpplint_state.quiet == True
 
     def testLineLength(self, state: _CppLintState):

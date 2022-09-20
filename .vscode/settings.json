@@ -67,4 +67,6 @@
     "[x]"
 ],
 "todo-tree.regex.regex": "(//|#|<!--|;|/\\*|^|^\\s*(-|\\d+.))\\s*($TAGS).*(\\n\\s*//\\s{2,}.*)*",
+"python.linting.flake8Enabled": true,
+"python.linting.enabled": true,
 }

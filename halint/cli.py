@@ -6,7 +6,8 @@ import os
 import sys
 
 from ._cpplintstate import _CppLintState
-from .cpplint import _ERROR_CATEGORIES, ProcessFileData, Error
+from .categories import _ERROR_CATEGORIES
+from .cpplint import ProcessFileData, Error
 
 _USAGE = """
 Syntax: cpplint.py [--verbose=#] [--output=emacs|eclipse|vs7|junit|sed|gsed]
@@ -518,7 +519,7 @@ def ProcessFile(state: _CppLintState, filename, vlevel, extra_check_functions=No
         state.PrintError('Ignoring %s; not a valid file name '
                          '(%s)\n' % (filename, ', '.join(state.GetAllExtensions())))
     else:
-        ProcessFileData(filename, file_extension, lines, Error,
+        ProcessFileData(state, filename, file_extension, lines, Error,
                         extra_check_functions)
 
         # If end-of-line sequences are a mix of LF and CR-LF, issue
@@ -536,7 +537,7 @@ def ProcessFile(state: _CppLintState, filename, vlevel, extra_check_functions=No
             # check whether the file is mostly CRLF or just LF, and warn on the
             # minority, we bias toward LF here since most tools prefer LF.
             for linenum in crlf_lines:
-                Error(filename, linenum, 'whitespace/newline', 1,
+                Error(state, filename, linenum, 'whitespace/newline', 1,
                       'Unexpected \\r (^M) found; better to use only \\n')
 
     # Suppress printing anything if --quiet was passed unless the error

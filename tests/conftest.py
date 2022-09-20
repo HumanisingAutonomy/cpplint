@@ -17,6 +17,13 @@ def state():
     state.filters = ""
     return state
 
+@pytest.fixture
+def state_with_defaults():
+    # Reset state, in case a previous test didn't clear up properly
+    state = _CppLintState()
+
+    return state
+
 
 @pytest.fixture(autouse=True)
 def global_setUp():

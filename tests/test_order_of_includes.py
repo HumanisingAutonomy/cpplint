@@ -100,7 +100,7 @@ class TestOrderOfIncludes(CpplintTestBase):
         assert 'test' == _DropCommonSuffixes(state, 'test.cc')
         assert 'test' == _DropCommonSuffixes(state, 'test.c++')
 
-    def testRegression(self):
+    def testRegression(self, state):
         def Format(includes):
             include_list = []
             for item in includes:
@@ -111,15 +111,15 @@ class TestOrderOfIncludes(CpplintTestBase):
             return ''.join(include_list)
 
         # Test singleton cases first.
-        self.TestLanguageRulesCheck('foo/foo.cc', Format(['"foo/foo.h"']), '')
-        self.TestLanguageRulesCheck('foo/foo.cc', Format(['<stdio.h>']), '')
-        self.TestLanguageRulesCheck('foo/foo.cc', Format(['<string>']), '')
-        self.TestLanguageRulesCheck('foo/foo.cc', Format(['"foo/foo-inl.h"']), '')
-        self.TestLanguageRulesCheck('foo/foo.cc', Format(['"bar/bar-inl.h"']), '')
-        self.TestLanguageRulesCheck('foo/foo.cc', Format(['"bar/bar.h"']), '')
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc', Format(['"foo/foo.h"']), '')
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc', Format(['<stdio.h>']), '')
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc', Format(['<string>']), '')
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc', Format(['"foo/foo-inl.h"']), '')
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc', Format(['"bar/bar-inl.h"']), '')
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc', Format(['"bar/bar.h"']), '')
 
         # Test everything in a good and new order.
-        self.TestLanguageRulesCheck('foo/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc',
                                     Format(['"foo/foo.h"',
                                             '"foo/foo-inl.h"',
                                             '<stdio.h>',
@@ -130,18 +130,18 @@ class TestOrderOfIncludes(CpplintTestBase):
                                     '')
 
         # Test bad orders.
-        self.TestLanguageRulesCheck(
+        self.TestLanguageRulesCheck(state,
             'foo/foo.cc',
             Format(['<string>', '<stdio.h>']),
             'Found C system header after C++ system header.'
             ' Should be: foo.h, c system, c++ system, other.'
             '  [build/include_order] [4]')
-        self.TestLanguageRulesCheck(
+        self.TestLanguageRulesCheck(state,
             'foo/foo.cc',
             Format(['"foo/bar-inl.h"',
                     '"foo/foo-inl.h"']),
             '')
-        self.TestLanguageRulesCheck(
+        self.TestLanguageRulesCheck(state,
             'foo/foo.cc',
             Format(['"foo/e.h"',
                     '"foo/b.h"',  # warning here (e>b)
@@ -153,23 +153,23 @@ class TestOrderOfIncludes(CpplintTestBase):
              'Include "foo/a.h" not in alphabetical order'
              '  [build/include_alpha] [4]'])
         # -inl.h headers are no longer special.
-        self.TestLanguageRulesCheck('foo/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc',
                                     Format(['"foo/foo-inl.h"', '<string>']),
                                     '')
-        self.TestLanguageRulesCheck('foo/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc',
                                     Format(['"foo/bar.h"', '"foo/bar-inl.h"']),
                                     '')
         # Test componentized header.  OK to have my header in ../public dir.
-        self.TestLanguageRulesCheck('foo/internal/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/internal/foo.cc',
                                     Format(['"foo/public/foo.h"', '<string>']),
                                     '')
         # OK to have my header in other dir (not stylistically, but
         # cpplint isn't as good as a human).
-        self.TestLanguageRulesCheck('foo/internal/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/internal/foo.cc',
                                     Format(['"foo/other/public/foo.h"',
                                             '<string>']),
                                     '')
-        self.TestLanguageRulesCheck('foo/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc',
                                     Format(['"foo/foo.h"',
                                             '<string>',
                                             '"base/google.h"',
@@ -178,14 +178,14 @@ class TestOrderOfIncludes(CpplintTestBase):
                                     'order  [build/include_alpha] [4]')
         # According to the style, -inl.h should come before .h, but we don't
         # complain about that.
-        self.TestLanguageRulesCheck('foo/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc',
                                     Format(['"foo/foo-inl.h"',
                                             '"foo/foo.h"',
                                             '"base/google.h"',
                                             '"base/google-inl.h"']),
                                     '')
         # Allow project includes to be separated by blank lines
-        self.TestLanguageRulesCheck('a/a.cc',
+        self.TestLanguageRulesCheck(state, 'a/a.cc',
                                     Format(['"a/a.h"',
                                             '<string>',
                                             '"base/google.h"',
@@ -195,7 +195,7 @@ class TestOrderOfIncludes(CpplintTestBase):
                                             'MACRO',
                                             '"a/b.h"']),
                                     '')
-        self.TestLanguageRulesCheck('a/a.cc',
+        self.TestLanguageRulesCheck(state, 'a/a.cc',
                                     Format(['"a/a.h"',
                                             '<string>',
                                             '"base/google.h"',
@@ -204,7 +204,7 @@ class TestOrderOfIncludes(CpplintTestBase):
                                     'order  [build/include_alpha] [4]')
 
         # Test conditional includes
-        self.TestLanguageRulesCheck(
+        self.TestLanguageRulesCheck(state,
             'a/a.cc',
             ''.join(['#include <string.h>\n',
                      '#include "base/port.h"\n',
@@ -212,7 +212,7 @@ class TestOrderOfIncludes(CpplintTestBase):
             ('Found C++ system header after other header. '
              'Should be: a.h, c system, c++ system, other.  '
              '[build/include_order] [4]'))
-        self.TestLanguageRulesCheck(
+        self.TestLanguageRulesCheck(state,
             'a/a.cc',
             ''.join(['#include <string.h>\n',
                      '#include "base/port.h"\n',
@@ -220,7 +220,7 @@ class TestOrderOfIncludes(CpplintTestBase):
                      '#include <initializer_list>\n',
                      '#endif  // LANG_CXX11\n']),
             '')
-        self.TestLanguageRulesCheck(
+        self.TestLanguageRulesCheck(state,
             'a/a.cc',
             ''.join(['#include <string.h>\n',
                      '#ifdef LANG_CXX11\n',
@@ -232,6 +232,6 @@ class TestOrderOfIncludes(CpplintTestBase):
              '[build/include_order] [4]'))
 
         # Third party headers are exempt from order checks
-        self.TestLanguageRulesCheck('foo/foo.cc',
+        self.TestLanguageRulesCheck(state, 'foo/foo.cc',
                                     Format(['<string>', '"Python.h"', '<vector>']),
                                     '')

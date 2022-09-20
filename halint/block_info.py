@@ -99,12 +99,13 @@ class _BlockInfo(object):
         """
         pass
 
-    def CheckEnd(self, filename, clean_lines, linenum, error):
+    def CheckEnd(self, state: _CppLintState, filename, clean_lines, linenum, error):
         """Run checks that applies to text after the closing brace.
 
         This is mostly used for checking end of namespace comments.
 
         Args:
+          state: The current state of the linting process
           filename: The name of the current file.
           clean_lines: A CleansedLines instance containing the file.
           linenum: The number of the line to check.
@@ -319,7 +320,7 @@ class _ClassInfo(_BlockInfo):
         if Search('(^|[^:]):($|[^:])', clean_lines.elided[linenum]):
             self.is_derived = True
 
-    def CheckEnd(self, filename, clean_lines, linenum, error):
+    def CheckEnd(self, state: _CppLintState, filename, clean_lines, linenum, error):
         # If there is a DISALLOW macro, it should appear near the end of
         # the class.
         seen_last_thing_in_class = False
@@ -330,7 +331,7 @@ class _ClassInfo(_BlockInfo):
                 clean_lines.elided[i])
             if match:
                 if seen_last_thing_in_class:
-                    error(filename, i, 'readability/constructors', 3,
+                    error(state, filename, i, 'readability/constructors', 3,
                           match.group(1) + ' should be the last thing in the class')
                 break
 
@@ -346,7 +347,7 @@ class _ClassInfo(_BlockInfo):
                 parent = 'struct ' + self.name
             else:
                 parent = 'class ' + self.name
-            error(filename, linenum, 'whitespace/indent', 3,
+            error(state, filename, linenum, 'whitespace/indent', 3,
                   'Closing brace should be aligned with beginning of %s' % parent)
 
 
@@ -358,7 +359,7 @@ class _NamespaceInfo(_BlockInfo):
         self.name = name or ''
         self.check_namespace_indentation = True
 
-    def CheckEnd(self, filename, clean_lines, linenum, error):
+    def CheckEnd(self, state: _CppLintState, filename, clean_lines, linenum, error):
         """Check end of namespace comments."""
         line = clean_lines.raw_lines[linenum]
 
@@ -394,7 +395,7 @@ class _NamespaceInfo(_BlockInfo):
             if not Match((r'^\s*};*\s*(//|/\*).*\bnamespace\s+' +
                           re.escape(self.name) + r'[\*/\.\\\s]*$'),
                          line):
-                error(filename, linenum, 'readability/namespace', 5,
+                error(state, filename, linenum, 'readability/namespace', 5,
                       'Namespace should be terminated with "// namespace %s"' %
                       self.name)
         else:
@@ -403,11 +404,11 @@ class _NamespaceInfo(_BlockInfo):
                 # If "// namespace anonymous" or "// anonymous namespace (more text)",
                 # mention "// anonymous namespace" as an acceptable form
                 if Match(r'^\s*}.*\b(namespace anonymous|anonymous namespace)\b', line):
-                    error(filename, linenum, 'readability/namespace', 5,
+                    error(state, filename, linenum, 'readability/namespace', 5,
                           'Anonymous namespace should be terminated with "// namespace"'
                           ' or "// anonymous namespace"')
                 else:
-                    error(filename, linenum, 'readability/namespace', 5,
+                    error(state, filename, linenum, 'readability/namespace', 5,
                           'Anonymous namespace should be terminated with "// namespace"')
 
 

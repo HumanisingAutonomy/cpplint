@@ -51,7 +51,7 @@ class _FunctionState(object):
             # 50 => 0, 100 => 1, 200 => 2, 400 => 3, 800 => 4, 1600 => 5, ...
             if error_level > 5:
                 error_level = 5
-            error(filename, linenum, 'readability/fn_size', error_level,
+            error(state, filename, linenum, 'readability/fn_size', error_level,
                   'Small and focused functions are preferred:'
                   f' {self.current_function } has {self.lines_in_function} non-comment lines'
                   f' (error triggered by exceeding {trigger} lines).')

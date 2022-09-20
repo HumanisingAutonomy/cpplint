@@ -5,6 +5,9 @@ from .block_info import (
     _NO_ASM, _END_ASM, _MATCH_ASM, _INSIDE_ASM, _BLOCK_ASM,
     CloseExpression,
 )
+from .cpplint import _CppLintState
+from .error import ErrorLogger
+from .cleansed_lines import CleansedLines
 from .regex import Match
 
 
@@ -183,8 +186,8 @@ class NestingState(object):
                 # TODO(unknown): unexpected #endif, issue warning?
                 pass
 
-    # TODO(unknown): Update() is too int, but we will refactor later.
-    def Update(self, filename, clean_lines, linenum, error):
+    # TODO(unknown): Update() is too long, but we will refactor later.
+    def Update(self, state: _CppLintState, filename: str, clean_lines: CleansedLines, linenum: int, error: ErrorLogger):
         """Update nesting state with current line.
 
         Args:
@@ -305,7 +308,7 @@ class NestingState(object):
                     slots = ''
                     if access_match.group(3):
                         slots = access_match.group(3)
-                    error(filename, linenum, 'whitespace/indent', 3,
+                    error(state, filename, linenum, 'whitespace/indent', 3,
                           '%s%s: should be indented +1 space inside %s' % (
                               access_match.group(2), slots, parent))
 
@@ -344,7 +347,7 @@ class NestingState(object):
             else:  # token == '}'
                 # Perform end of block checks and pop the stack.
                 if self.stack:
-                    self.stack[-1].CheckEnd(filename, clean_lines, linenum, error)
+                    self.stack[-1].CheckEnd(state, filename, clean_lines, linenum, error)
                     self.stack.pop()
             line = matched.group(2)
 
@@ -360,7 +363,7 @@ class NestingState(object):
                 return classinfo
         return None
 
-    def CheckCompletedBlocks(self, filename, error):
+    def CheckCompletedBlocks(self, state, filename, error):
         """Checks that all classes and namespaces have been completely parsed.
 
         Call this when all lines in a file have been processed.
@@ -373,10 +376,10 @@ class NestingState(object):
         # cpplint_unittest.py for an example of this.
         for obj in self.stack:
             if isinstance(obj, _ClassInfo):
-                error(filename, obj.starting_linenum, 'build/class', 5,
+                error(state, filename, obj.starting_linenum, 'build/class', 5,
                       'Failed to find complete declaration of class %s' %
                       obj.name)
             elif isinstance(obj, _NamespaceInfo):
-                error(filename, obj.starting_linenum, 'build/namespaces', 5,
+                error(state, filename, obj.starting_linenum, 'build/namespaces', 5,
                       'Failed to find complete declaration of namespace %s' %
                       obj.name)

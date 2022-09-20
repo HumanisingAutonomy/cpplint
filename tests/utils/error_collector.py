@@ -3,24 +3,27 @@ import sys
 from typing import Union
 
 import halint.cpplint as cpplint
+from halint._cpplintstate import _CppLintState
+
+from halint.categories import _ERROR_CATEGORIES
 
 # This class works as an error collector and replaces cpplint.Error
 # function for the unit tests.  We also verify each category we see
 # is in cpplint._ERROR_CATEGORIES, to help keep that list up to date.
 class ErrorCollector(object):
     # These are a global list, covering all categories seen ever.
-    _ERROR_CATEGORIES = cpplint._ERROR_CATEGORIES
     _SEEN_ERROR_CATEGORIES = {}
+    _ERROR_CATEGORIES = _ERROR_CATEGORIES
 
     def __init__(self):
         self._errors = []
 
-    def __call__(self, unused_filename: str, linenum: int,
+    def __call__(self, state: _CppLintState, unused_filename: str, linenum: int,
                  category: str, confidence: int, message: str):
         if category not in self._ERROR_CATEGORIES:
             raise ValueError(f'Message {message} has category {category}, which is not in _ERROR_CATEGORIES')
         self._SEEN_ERROR_CATEGORIES[category] = 1
-        if cpplint._ShouldPrintError(cpplint._cpplint_state, category, confidence, linenum):
+        if cpplint._ShouldPrintError(state, category, confidence, linenum):
             self._errors.append('%s  [%s] [%d]' % (message, category, confidence))
 
     def Results(self) -> Union[str, list[str]]:

@@ -14,7 +14,7 @@ import halint.cpplint as cpplint
 from halint.lintstate import LintState
 from halint.block_info import GetLineWidth, IsBlankLine, _GetTextInside
 from halint.check_line import CheckForNamespaceIndentation
-from halint.file_info import PathSplitToList
+from halint.file_info import path_split_to_list
 
 from .base_case import CpplintTestBase
 from .utils.error_collector import ErrorCollector
@@ -27,13 +27,14 @@ _TEST_FILE_SUFFIX = "(" + "|".join(_test_suffixes) + r")$"
 
 class TestCpplint(CpplintTestBase):
     def GetNamespaceResults(self, state: LintState, lines):
+        file_name = "foo.h"
         error_collector = ErrorCollector()
-        cpplint.RemoveMultiLineComments(state, "foo.h", lines, error_collector)
-        lines = cpplint.CleansedLines(lines)
+        cpplint.RemoveMultiLineComments(state, file_name, lines, error_collector)
+        lines = cpplint.CleansedLines(lines, file_name)
         nesting_state = cpplint.NestingState()
-        for i in range(lines.NumLines()):
-            nesting_state.Update(state, "foo.h", lines, i, error_collector)
-            CheckForNamespaceIndentation(state, "foo.h", nesting_state, lines, i, error_collector)
+        for i in range(lines.num_lines()):
+            nesting_state.update(state, lines, i, error_collector)
+            CheckForNamespaceIndentation(state, file_name, nesting_state, lines, i, error_collector)
 
         return error_collector.Results()
 
@@ -111,7 +112,6 @@ class TestCpplint(CpplintTestBase):
             r"^\s*#define\s*\w+\(",
         )
 
-
     def testFindNextMultiLineCommentEnd(self):
         assert 1 == cpplint.FindNextMultiLineCommentEnd([""], 0)
         lines = ["a", "b", " c */"]
@@ -146,9 +146,9 @@ class TestCpplint(CpplintTestBase):
     # Test error suppression annotations.
     from .data.cpplint_data import error_suppression_file_data
 
-    @pytest.mark.parametrize("code,expected_message,filename", error_suppression_file_data)
-    def testErrorSuppressionFileData(self, state, code, expected_message, filename):
-        self.TestFile(state, code, expected_message, filename)
+    @pytest.mark.parametrize("code,expected_message,file_name", error_suppression_file_data)
+    def testErrorSuppressionFileData(self, state, code, expected_message, file_name):
+        self.TestFile(state, code, expected_message, file_name)
 
     # Test Variable Declarations.
     from .data.cpplint_data import variable_declaration_data
@@ -192,9 +192,9 @@ class TestCpplint(CpplintTestBase):
 
     from .data.cpplint_data import deprecated_cast_file_data
 
-    @pytest.mark.parametrize("code,expected_message,filename", deprecated_cast_file_data)
-    def testDeprecatedCastFileData(self, state, code, expected_message, filename):
-        self.TestFile(state, code, expected_message, filename)
+    @pytest.mark.parametrize("code,expected_message,file_name", deprecated_cast_file_data)
+    def testDeprecatedCastFileData(self, state, code, expected_message, file_name):
+        self.TestFile(state, code, expected_message, file_name)
 
     # The second parameter to a gMock method definition is a function signature
     # that often looks like a bad cast but should not picked up by lint.
@@ -206,9 +206,9 @@ class TestCpplint(CpplintTestBase):
 
     from .data.cpplint_data import mock_method_file_data
 
-    @pytest.mark.parametrize("code,filename,expected_messages", mock_method_file_data)
-    def testMockMethodFileData(self, state, code, filename, expected_messages):
-        self.TestFileWithMessageCounts(state, code, filename, expected_messages)
+    @pytest.mark.parametrize("code,file_name,expected_messages", mock_method_file_data)
+    def testMockMethodFileData(self, state, code, file_name, expected_messages):
+        self.TestFileWithMessageCounts(state, code, file_name, expected_messages)
 
     # Like gMock method definitions, MockCallback instantiations look very similar
     # to bad casts.
@@ -507,7 +507,7 @@ class TestCpplint(CpplintTestBase):
         message = self.PerformIncludeWhatYouUse(
             state,
             '#include "blah/a.h"',
-            filename="blah/a.cc",
+            file_name="blah/a.cc",
             io=MockIo(mock_header_contents),
         )
         assert message == ""
@@ -517,7 +517,7 @@ class TestCpplint(CpplintTestBase):
             state,
             """#include "blah/a.h"
            std::set<int> foo;""",
-            filename="blah/a.cc",
+            file_name="blah/a.cc",
             io=MockIo(mock_header_contents),
         )
         assert message == ""
@@ -529,7 +529,7 @@ class TestCpplint(CpplintTestBase):
             state,
             """#include "blah/a.h"
            std::set<int> foo;""",
-            filename="blah/a_flymake.cc",
+            file_name="blah/a_flymake.cc",
             io=MockIo(mock_header_contents),
         )
         assert message == "Add #include <set> for set<>  [build/include_what_you_use] [4]"
@@ -539,7 +539,7 @@ class TestCpplint(CpplintTestBase):
             state,
             """#include "blah/a.h"
            std::set<int> foo;""",
-            filename="blah/a.cc",
+            file_name="blah/a.cc",
         )
         assert message == ""
 
@@ -550,7 +550,7 @@ class TestCpplint(CpplintTestBase):
             """#include "%s/a.h"
            std::set<int> foo;"""
             % os.path.basename(os.getcwd()),
-            filename="a.cc",
+            file_name="a.cc",
             io=MockIo(mock_header_contents),
         )
         assert message == "Add #include <set> for set<>  [build/include_what_you_use] [4]"
@@ -576,14 +576,14 @@ class TestCpplint(CpplintTestBase):
         assert (False, "") == f("a.cc", "b.h")
 
     def testCleanseLine(self):
-        assert "int foo = 0;" == cpplint.CleanseComments("int foo = 0;  // danger!")
-        assert "int o = 0;" == cpplint.CleanseComments("int /* foo */ o = 0;")
-        assert "foo(int a, int b);" == cpplint.CleanseComments("foo(int a /* abc */, int b);")
-        assert "f(a, b);" == cpplint.CleanseComments("f(a, /* name */ b);")
-        assert "f(a, b);" == cpplint.CleanseComments("f(a /* name */, b);")
-        assert "f(a, b);" == cpplint.CleanseComments("f(a, /* name */b);")
-        assert "f(a, b, c);" == cpplint.CleanseComments("f(a, /**/b, /**/c);")
-        assert "f(a, b, c);" == cpplint.CleanseComments("f(a, /**/b/**/, c);")
+        assert "int foo = 0;" == cpplint.cleanse_comments("int foo = 0;  // danger!")
+        assert "int o = 0;" == cpplint.cleanse_comments("int /* foo */ o = 0;")
+        assert "foo(int a, int b);" == cpplint.cleanse_comments("foo(int a /* abc */, int b);")
+        assert "f(a, b);" == cpplint.cleanse_comments("f(a, /* name */ b);")
+        assert "f(a, b);" == cpplint.cleanse_comments("f(a /* name */, b);")
+        assert "f(a, b);" == cpplint.cleanse_comments("f(a, /* name */b);")
+        assert "f(a, b, c);" == cpplint.cleanse_comments("f(a, /**/b, /**/c);")
+        assert "f(a, b, c);" == cpplint.cleanse_comments("f(a, /**/b/**/, c);")
 
     from .data.cpplint_data import raw_strings_data
 
@@ -717,9 +717,7 @@ class TestCpplint(CpplintTestBase):
             ],
             error_collector,
         )
-        assert 0 == error_collector.ResultList().count(
-            "Extra space before ( in function call  [whitespace/parens] [4]"
-        )
+        assert 0 == error_collector.ResultList().count("Extra space before ( in function call  [whitespace/parens] [4]")
         assert 0 == error_collector.ResultList().count(
             "Closing ) should be moved to the previous line  [whitespace/parens] [2]"
         )
@@ -4155,7 +4153,7 @@ class TestCpplint(CpplintTestBase):
         file_path = os.path.join(header_directory, "cpplint_test_header.h")
         open(file_path, "a").close()
         file_info = cpplint.FileInfo(file_path)
-        if file_info.FullName() == file_info.RepositoryName(state._repository):
+        if file_info.full_name() == file_info.repository_name(state._repository):
             # When FileInfo cannot deduce the root directory of the repository,
             # FileInfo.RepositoryName returns the same value as FileInfo.FullName.
             # This can happen when this source file was obtained without .svn or
@@ -4309,11 +4307,11 @@ class TestCpplint(CpplintTestBase):
             shutil.rmtree(temp_directory)
 
     def testPathSplitToList(self):
-        assert [""] == PathSplitToList(os.path.join(""))
-        assert ["."] == PathSplitToList(os.path.join("."))
-        assert [".."] == PathSplitToList(os.path.join(".."))
-        assert ["..", "a", "b"], PathSplitToList(os.path.join("..", "a" == "b"))
-        assert ["a", "b", "c", "d"], PathSplitToList(os.path.join("a", "b", "c" == "d"))
+        assert [""] == path_split_to_list(os.path.join(""))
+        assert ["."] == path_split_to_list(os.path.join("."))
+        assert [".."] == path_split_to_list(os.path.join(".."))
+        assert ["..", "a", "b"], path_split_to_list(os.path.join("..", "a" == "b"))
+        assert ["a", "b", "c", "d"], path_split_to_list(os.path.join("a", "b", "c" == "d"))
 
     def testBuildHeaderGuardWithRepository(self, state):
         temp_directory = os.path.realpath(tempfile.mkdtemp())
@@ -4328,31 +4326,21 @@ class TestCpplint(CpplintTestBase):
             open(file_path, "a").close()
 
             # search for .svn if _repository is not specified
-            assert "TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(
-                state, file_path
-            )
+            assert "TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(state, file_path)
 
             # use the provided repository root for header guards
             state._repository = os.path.relpath(trunk_dir)
-            assert "CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(
-                state, file_path
-            )
+            assert "CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(state, file_path)
             state._repository = os.path.abspath(trunk_dir)
-            assert "CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(
-                state, file_path
-            )
+            assert "CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(state, file_path)
 
             # ignore _repository if it doesnt exist
             state._repository = os.path.join(temp_directory, "NON_EXISTENT")
-            assert "TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(
-                state, file_path
-            )
+            assert "TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(state, file_path)
 
             # ignore _repository if it exists but file isn't in it
             state._repository = os.path.relpath(temp_directory2)
-            assert "TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(
-                state, file_path
-            )
+            assert "TRUNK_CPPLINT_CPPLINT_TEST_HEADER_H_" == cpplint.GetHeaderGuardCPPVariable(state, file_path)
 
             # _root should be relative to _repository
             state._repository = os.path.relpath(trunk_dir)

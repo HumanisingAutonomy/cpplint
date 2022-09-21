@@ -8,9 +8,7 @@ from typing import Optional
 
 from .categories import _ERROR_CATEGORIES
 from .cpplint import ProcessFileData
-from .error import (
-    Error
-)
+from .error import Error
 from .lintstate import LintState
 
 _USAGE = """
@@ -494,7 +492,7 @@ def process_file(state: LintState, filename, vlevel, extra_check_functions=None)
 
       extra_check_functions: An array of additional check functions that will be
                              run on each source line. Each function takes 4
-                             arguments: filename, clean_lines, line, error
+                             arguments: file_name, clean_lines, line, error
     """
 
     state.verbose_level = vlevel
@@ -544,7 +542,7 @@ def process_file(state: LintState, filename, vlevel, extra_check_functions=None)
         state.restore_filters()
         return
 
-    # Note, if no dot is found, this will give the entire filename as the ext.
+    # Note, if no dot is found, this will give the entire file_name as the ext.
     file_extension = filename[filename.rfind(".") + 1 :]
 
     # When reading from stdin, the extension is unknown, so no cpplint tests
@@ -594,7 +592,7 @@ def ProcessConfigOverrides(state, filename):
       filename: The name of the file being processed by the linter.
 
     Returns:
-      False if the current |filename| should not be processed further.
+      False if the current |file_name| should not be processed further.
     """
 
     abs_filename = os.path.abspath(filename)

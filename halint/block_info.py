@@ -5,9 +5,10 @@ import sys
 import sysconfig
 import unicodedata
 
-from .categories import _ERROR_CATEGORIES
-from .file_info import FileInfo, PathSplitToList
-from .include_state import _IncludeState
+from .cleansed_lines import CleansedLines
+from .error import ErrorLogger
+from .file_info import FileInfo, path_split_to_list
+from .include_state import IncludeState
 from .lintstate import LintState
 from .regex import Match, Search
 
@@ -15,7 +16,7 @@ from .regex import Match, Search
 _test_suffixes = ["_test", "_regtest", "_unittest"]
 _TEST_FILE_SUFFIX = "(" + "|".join(_test_suffixes) + r")$"
 
-# Matches the first component of a filename delimited by -s and _s. That is:
+# Matches the first component of a file_name delimited by -s and _s. That is:
 #  _RE_FIRST_COMPONENT.match('foo').group(0) == 'foo'
 #  _RE_FIRST_COMPONENT.match('foo.cc').group(0) == 'foo'
 #  _RE_FIRST_COMPONENT.match('foo-bar_baz.cc').group(0) == 'foo'
@@ -50,7 +51,6 @@ _SEARCH_C_FILE = re.compile(r"\b(?:LINT_C_FILE|" r"vim?:\s*.*(\s*|:)filetype=c(\
 _SEARCH_KERNEL_FILE = re.compile(r"\b(?:LINT_KERNEL_FILE)")
 
 
-
 class BlockInfo(object):
     """Stores information about a generic block of code."""
 
@@ -61,7 +61,7 @@ class BlockInfo(object):
         self.inline_asm = _NO_ASM
         self.check_namespace_indentation = False
 
-    def check_begin(self, filename, clean_lines, line_num, error):
+    def check_begin(self, clean_lines, line_num, error):
         """Run checks that applies to text up to the opening brace.
 
         This is mostly for checking the text after the class identifier
@@ -69,23 +69,21 @@ class BlockInfo(object):
         blocks, there isn't much to check, so we always pass.
 
         Args:
-          filename: The name of the current file.
           clean_lines: A CleansedLines instance containing the file.
           line_num: The number of the line to check.
           error: The function to call with any errors found.
         """
         pass
 
-    def CheckEnd(self, state: LintState, filename, clean_lines, linenum, error):
+    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int, error: ErrorLogger):
         """Run checks that applies to text after the closing brace.
 
         This is mostly used for checking end of namespace comments.
 
         Args:
           state: The current state of the linting process
-          filename: The name of the current file.
           clean_lines: A CleansedLines instance containing the file.
-          linenum: The number of the line to check.
+          line_num: The number of the line to check.
           error: The function to call with any errors found.
         """
         pass
@@ -135,23 +133,23 @@ class _ClassInfo(BlockInfo):
         # But it's still good enough for CheckSectionSpacing.
         self.last_line = 0
         depth = 0
-        for i in range(line_num, clean_lines.NumLines()):
+        for i in range(line_num, clean_lines.num_lines()):
             line = clean_lines.elided[i]
             depth += line.count("{") - line.count("}")
             if not depth:
                 self.last_line = i
                 break
 
-    def check_begin(self, filename, clean_lines, line_num, error):
+    def check_begin(self, clean_lines, line_num, error):
         # Look for a bare ':'
         if Search("(^|[^:]):($|[^:])", clean_lines.elided[line_num]):
             self.is_derived = True
 
-    def CheckEnd(self, state: LintState, filename, clean_lines, linenum, error):
+    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int, error: ErrorLogger):
         # If there is a DISALLOW macro, it should appear near the end of
         # the class.
         seen_last_thing_in_class = False
-        for i in range(linenum - 1, self.starting_line_num, -1):
+        for i in range(line_num - 1, self.starting_line_num, -1):
             match = Search(
                 r"\b(DISALLOW_COPY_AND_ASSIGN|DISALLOW_IMPLICIT_CONSTRUCTORS)\(" + self.name + r"\)",
                 clean_lines.elided[i],
@@ -160,7 +158,7 @@ class _ClassInfo(BlockInfo):
                 if seen_last_thing_in_class:
                     error(
                         state,
-                        filename,
+                        clean_lines.file_name,
                         i,
                         "readability/constructors",
                         3,
@@ -174,7 +172,7 @@ class _ClassInfo(BlockInfo):
         # Check that closing brace is aligned with beginning of the class.
         # Only do this if the closing brace is indented by only whitespaces.
         # This means we will not check single-line class definitions.
-        indent = Match(r"^( *)\}", clean_lines.elided[linenum])
+        indent = Match(r"^( *)\}", clean_lines.elided[line_num])
         if indent and len(indent.group(1)) != self.class_indent:
             if self.is_struct:
                 parent = "struct " + self.name
@@ -182,8 +180,8 @@ class _ClassInfo(BlockInfo):
                 parent = "class " + self.name
             error(
                 state,
-                filename,
-                linenum,
+                clean_lines.file_name,
+                line_num,
                 "whitespace/indent",
                 3,
                 "Closing brace should be aligned with beginning of %s" % parent,
@@ -198,9 +196,9 @@ class _NamespaceInfo(BlockInfo):
         self.name = name or ""
         self.check_namespace_indentation = True
 
-    def CheckEnd(self, state: LintState, filename, clean_lines, linenum, error):
+    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int, error: ErrorLogger):
         """Check end of namespace comments."""
-        line = clean_lines.raw_lines[linenum]
+        line = clean_lines.raw_lines[line_num]
 
         # Check how many lines is enclosed in this namespace.  Don't issue
         # warning for missing namespace comments if there aren't enough
@@ -213,7 +211,7 @@ class _NamespaceInfo(BlockInfo):
         # other than forward declarations).  There is currently no logic on
         # deciding what these nontrivial things are, so this check is
         # triggered by namespace size only, which works most of the time.
-        if linenum - self.starting_line_num < 10 and not Match(r"^\s*};*\s*(//|/\*).*\bnamespace\b", line):
+        if line_num - self.starting_line_num < 10 and not Match(r"^\s*};*\s*(//|/\*).*\bnamespace\b", line):
             return
 
         # Look for matching comment at end of namespace.
@@ -236,8 +234,8 @@ class _NamespaceInfo(BlockInfo):
             ):
                 error(
                     state,
-                    filename,
-                    linenum,
+                    clean_lines.file_name,
+                    line_num,
                     "readability/namespace",
                     5,
                     'Namespace should be terminated with "// namespace %s"' % self.name,
@@ -250,8 +248,8 @@ class _NamespaceInfo(BlockInfo):
                 if Match(r"^\s*}.*\b(namespace anonymous|anonymous namespace)\b", line):
                     error(
                         state,
-                        filename,
-                        linenum,
+                        clean_lines.file_name,
+                        line_num,
                         "readability/namespace",
                         5,
                         'Anonymous namespace should be terminated with "// namespace"' ' or "// anonymous namespace"',
@@ -259,8 +257,8 @@ class _NamespaceInfo(BlockInfo):
                 else:
                     error(
                         state,
-                        filename,
-                        linenum,
+                        clean_lines.file_name,
+                        line_num,
                         "readability/namespace",
                         5,
                         'Anonymous namespace should be terminated with "// namespace"',
@@ -309,7 +307,7 @@ def GetHeaderGuardCPPVariable(state, filename):
 
     """
 
-    # Restores original filename in case that cpplint is invoked from Emacs's
+    # Restores original file_name in case that cpplint is invoked from Emacs's
     # flymake.
     filename = re.sub(r"_flymake\.h$", ".h", filename)
     filename = re.sub(r"/\.flymake/([^/]*)$", r"/\1", filename)
@@ -317,13 +315,13 @@ def GetHeaderGuardCPPVariable(state, filename):
     filename = filename.replace("C++", "cpp").replace("c++", "cpp")
 
     fileinfo = FileInfo(filename)
-    file_path_from_root = fileinfo.RepositoryName(state._repository)
+    file_path_from_root = fileinfo.repository_name(state._repository)
 
     def FixupPathFromRoot():
         if state._root_debug:
             sys.stderr.write(
                 "\n_root fixup, _root = '%s', repository name = '%s'\n"
-                % (state._root, fileinfo.RepositoryName(state._repository))
+                % (state._root, fileinfo.repository_name(state._repository))
             )
 
         # Process the file path with the --root flag if it was set.
@@ -341,7 +339,7 @@ def GetHeaderGuardCPPVariable(state, filename):
 
         # root behavior:
         #   --root=subdir , lstrips subdir from the header guard
-        maybe_path = StripListPrefix(PathSplitToList(file_path_from_root), PathSplitToList(state._root))
+        maybe_path = StripListPrefix(path_split_to_list(file_path_from_root), path_split_to_list(state._root))
 
         if state._root_debug:
             sys.stderr.write(
@@ -353,11 +351,11 @@ def GetHeaderGuardCPPVariable(state, filename):
             return os.path.join(*maybe_path)
 
         #   --root=.. , will prepend the outer directory to the header guard
-        full_path = fileinfo.FullName()
+        full_path = fileinfo.full_name()
         # adapt slashes for windows
         root_abspath = os.path.abspath(state._root).replace("\\", "/")
 
-        maybe_path = StripListPrefix(PathSplitToList(full_path), PathSplitToList(root_abspath))
+        maybe_path = StripListPrefix(path_split_to_list(full_path), path_split_to_list(root_abspath))
 
         if state._root_debug:
             sys.stderr.write(
@@ -570,8 +568,6 @@ def IsMacroDefinition(clean_lines, linenum):
 
 def IsForwardClassDeclaration(clean_lines, linenum):
     return Match(r"^\s*(\btemplate\b)*.*class\s+\w+;\s*$", clean_lines[linenum])
-
-
 
 
 def IsBlockInNameSpace(nesting_state, is_forward_declaration):
@@ -896,7 +892,7 @@ def CloseExpression(clean_lines, linenum, pos):
 
     line = clean_lines.elided[linenum]
     if (line[pos] not in "({[<") or Match(r"<[<=]", line[pos:]):
-        return (line, clean_lines.NumLines(), -1)
+        return (line, clean_lines.num_lines(), -1)
 
     # Check first line
     (end_pos, stack) = FindEndOfExpressionInLine(line, pos, [])
@@ -904,7 +900,7 @@ def CloseExpression(clean_lines, linenum, pos):
         return (line, linenum, end_pos)
 
     # Continue scanning forward
-    while stack and linenum < clean_lines.NumLines() - 1:
+    while stack and linenum < clean_lines.num_lines() - 1:
         linenum += 1
         line = clean_lines.elided[linenum]
         (end_pos, stack) = FindEndOfExpressionInLine(line, 0, stack)
@@ -912,7 +908,7 @@ def CloseExpression(clean_lines, linenum, pos):
             return (line, linenum, end_pos)
 
     # Did not find end of expression before end of file, give up
-    return (line, clean_lines.NumLines(), -1)
+    return (line, clean_lines.num_lines(), -1)
 
 
 def ReverseCloseExpression(clean_lines, linenum, pos):
@@ -1338,21 +1334,21 @@ def _ClassifyInclude(state, fileinfo, include, used_angle_brackets, include_orde
 
     if is_system:
         if is_cpp_header:
-            return _IncludeState._CPP_SYS_HEADER
+            return IncludeState._CPP_SYS_HEADER
         if is_std_c_header:
-            return _IncludeState._C_SYS_HEADER
+            return IncludeState._C_SYS_HEADER
         else:
-            return _IncludeState._OTHER_SYS_HEADER
+            return IncludeState._OTHER_SYS_HEADER
 
     # If the target file and the include we're checking share a
     # basename when we drop common extensions, and the include
     # lives in . , then it's likely to be owned by the target file.
-    target_dir, target_base = os.path.split(_DropCommonSuffixes(state, fileinfo.RepositoryName(state._repository)))
+    target_dir, target_base = os.path.split(_DropCommonSuffixes(state, fileinfo.repository_name(state._repository)))
     include_dir, include_base = os.path.split(_DropCommonSuffixes(state, include))
     target_dir_pub = os.path.normpath(target_dir + "/../public")
     target_dir_pub = target_dir_pub.replace("\\", "/")
     if target_base == include_base and (include_dir == target_dir or include_dir == target_dir_pub):
-        return _IncludeState._LIKELY_MY_HEADER
+        return IncludeState._LIKELY_MY_HEADER
 
     # If the target and include share some initial basename
     # component, it's possible the target is implementing the
@@ -1365,13 +1361,13 @@ def _ClassifyInclude(state, fileinfo, include, used_angle_brackets, include_orde
         and include_first_component
         and target_first_component.group(0) == include_first_component.group(0)
     ):
-        return _IncludeState._POSSIBLE_MY_HEADER
+        return IncludeState._POSSIBLE_MY_HEADER
 
-    return _IncludeState._OTHER_HEADER
+    return IncludeState._OTHER_HEADER
 
 
 def _DropCommonSuffixes(state, filename):
-    """Drops common suffixes like _test.cc or -inl.h from filename.
+    """Drops common suffixes like _test.cc or -inl.h from file_name.
 
     For example:
       >>> _DropCommonSuffixes('foo/foo-inl.h')
@@ -1384,10 +1380,10 @@ def _DropCommonSuffixes(state, filename):
       'foo/foo_unusualinternal'
 
     Args:
-      filename: The input filename.
+      filename: The input file_name.
 
     Returns:
-      The filename with the common suffix removed.
+      The file_name with the common suffix removed.
     """
     for suffix in itertools.chain(
         (
@@ -1450,3 +1446,5 @@ def FindNextMultiLineCommentEnd(lines: list[str], line_index: int):
             return line_index
         line_index += 1
     return len(lines)
+
+

@@ -1,28 +1,41 @@
 import os
 import pathlib
+from typing import Optional
 
 
-def _IsExtension(extension: str, extensions: list[str]):
-    """File extension (excluding dot) matches a file extension."""
+def is_extension(extension: str, extensions: list[str]) -> bool:
+    """File extension (excluding dot) matches a file extension.
+
+    Args:
+        extension: the extension to attempt to match
+        extensions: the list of potential extension to match
+
+    Returns:
+        True if extension is in the provided list, False otherwise.
+    """
     return extension in extensions
 
 
-class FileInfo(object):
+class FileInfo:
     """Provides utility functions for filenames.
 
     FileInfo provides easy access to the components of a file's path
     relative to the project root.
     """
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str) -> None:
         self._filename = filename
         self._path = pathlib.Path(self._filename)
 
-    def FullName(self):
-        """Make Windows paths like Unix."""
+    def full_name(self) -> str:
+        """Make Windows paths like Unix.
+
+        Returns:
+            a unix style path, even if a windows one is provided initially
+        """
         return os.path.abspath(self._filename).replace("\\", "/")
 
-    def RepositoryName(self, repository: str):
+    def repository_name(self, repository: Optional[str] = None) -> str:
         r"""FullName after removing the local path to the repository.
 
         If we have a real absolute path name here we can try to do something smart:
@@ -31,8 +44,14 @@ class FileInfo(object):
         "C:\\Documents and Settings\\..." or "/home/username/..." in them and thus
         people on different computers who have checked the source out to different
         locations won't see bogus errors.
+
+        Args:
+            repository: The path to be treated as the root of the repository
+
+        Returns:
+            the name of this file relative to the provided repository path.
         """
-        fullname = self.FullName()
+        fullname = self.full_name()
 
         if os.path.exists(fullname):
             project_dir = os.path.dirname(fullname)
@@ -40,7 +59,7 @@ class FileInfo(object):
             # If the user specified a repository path, it exists, and the file is
             # contained in it, use the specified repository path
             if repository:
-                repo = FileInfo(repository).FullName()
+                repo = FileInfo(repository).full_name()
                 root_dir = project_dir
                 while os.path.exists(root_dir):
                     # allow case insensitive compare on Windows
@@ -87,27 +106,40 @@ class FileInfo(object):
         # warnings.warn("Cannot determine repository root, header guard checks may be wrong", RuntimeWarning)
         return fullname
 
-    def BaseName(self):
-        """File base name - text after the final slash, before the final period."""
+    def base_name(self) -> str:
+        """File base name.
+
+        Returns:
+            text after the final slash, before the final period."""
         return self._path.stem
 
-    def Extension(self):
-        """File extension - text following the final period, includes that period."""
+    def extension(self) -> str:
+        """File extension.
+
+        Returns:
+            the text following the final period, includes that period."""
         return self._path.suffix
 
-    def IsExtension(self, extensions: list[str]) -> bool:
-        """File has a source file extension."""
-        return _IsExtension(self.Extension()[1:], extensions)
+    def is_extension(self, extensions: list[str]) -> bool:
+        """File has a source file extension.
+
+        Args:
+            extensions: A list of extensions to test against
+
+        Returns:
+            True if the extension of this file appears in the provided list, False otherwise
+        """
+        return is_extension(self.extension()[1:], extensions)
 
 
-def PathSplitToList(path):
+def path_split_to_list(path: str) -> list[str]:
     """Returns the path split into a list by the separator.
 
     Args:
-      path: An absolute or relative path (e.g. '/a/b/c/' or '../a')
+        path: An absolute or relative path (e.g. '/a/b/c/' or '../a')
 
     Returns:
-      A list of path components (e.g. ['a', 'b', 'c]).
+        A list of path components (e.g. ['a', 'b', 'c]).
     """
     lst = []
     while True:

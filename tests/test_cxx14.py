@@ -9,7 +9,7 @@ class TestCxx14(CpplintTestBase):
         lines = code.split("\n")
         collector = ErrorCollector()
         cpplint.RemoveMultiLineComments(state, "foo.h", lines, collector)
-        clean_lines = cpplint.CleansedLines(lines)
+        clean_lines = cpplint.CleansedLines(lines, "foo.h")
         cpplint.FlagCxx14Features(state, "foo.cc", clean_lines, 0, collector)
         expected_error == collector.Results()
 

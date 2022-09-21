@@ -1,6 +1,8 @@
+"""Holds state related to parsing braces."""
 import copy
+from typing import Optional
 
-from .block_info import (
+from halint.block_info import (
     _BLOCK_ASM,
     _END_ASM,
     _INSIDE_ASM,
@@ -13,16 +15,16 @@ from .block_info import (
     _NamespaceInfo,
     _PreprocessorInfo,
 )
-from .cleansed_lines import CleansedLines
-from .lintstate import LintState
-from .error import ErrorLogger
-from .regex import Match
+from halint.cleansed_lines import CleansedLines
+from halint.lintstate import LintState
+from halint.error import ErrorLogger
+from halint.regex import Match
 
 
-class NestingState(object):
+class NestingState:
     """Holds states related to parsing braces."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Stack for tracking all braces.  An object is pushed whenever we
         # see a "{", and popped when we see a "}".  Only 3 types of
         # objects are possible:
@@ -45,63 +47,65 @@ class NestingState(object):
         # Stack of _PreprocessorInfo objects.
         self.pp_stack = []
 
-    def SeenOpenBrace(self):
+    def seen_open_brace(self) -> bool:
         """Check if we have seen the opening brace for the innermost block.
 
         Returns:
-          True if we have seen the opening brace, False if the innermost
-          block is still expecting an opening brace.
+            True if we have seen the opening brace, False if the innermost
+            block is still expecting an opening brace.
         """
         return (not self.stack) or self.stack[-1].seen_open_brace
 
-    def InNamespaceBody(self):
+    def in_namespace_body(self) -> bool:
         """Check if we are currently one level inside a namespace body.
 
         Returns:
-          True if top of the stack is a namespace block, False otherwise.
+            True if top of the stack is a namespace block, False otherwise.
         """
         return self.stack and isinstance(self.stack[-1], _NamespaceInfo)
 
-    def InExternC(self):
+    def in_extern_c(self) -> bool:
         """Check if we are currently one level inside an 'extern "C"' block.
 
         Returns:
-          True if top of the stack is an extern block, False otherwise.
+            True if top of the stack is an extern block, False otherwise.
         """
         return self.stack and isinstance(self.stack[-1], _ExternCInfo)
 
-    def InClassDeclaration(self):
+    def in_class_declaration(self) -> bool:
         """Check if we are currently one level inside a class or struct declaration.
 
         Returns:
-          True if top of the stack is a class/struct, False otherwise.
+            True if top of the stack is a class/struct, False otherwise.
         """
         return self.stack and isinstance(self.stack[-1], _ClassInfo)
 
-    def InAsmBlock(self):
+    def is_asm_block(self) -> bool:
         """Check if we are currently one level inside an inline ASM block.
 
         Returns:
-          True if the top of the stack is a block containing inline ASM.
+            True if the top of the stack is a block containing inline ASM.
         """
         return self.stack and self.stack[-1].inline_asm != _NO_ASM
 
-    def InTemplateArgumentList(self, clean_lines, linenum, pos):
+    @staticmethod
+    def in_template_argument_list(clean_lines: CleansedLines, line_num: int, pos: int) -> bool:
         """Check if current position is inside template argument list.
 
         Args:
-          clean_lines: A CleansedLines instance containing the file.
-          linenum: The number of the line to check.
-          pos: position just after the suspected template argument.
+            clean_lines: A CleansedLines instance containing the file.
+            line_num: The number of the line to check.
+            pos: position just after the suspected template argument.
+
         Returns:
-          True if (line_num, pos) is inside template arguments.
+            True if (line_num, pos) is inside template arguments.
         """
-        while linenum < clean_lines.NumLines():
+        while line_num < clean_lines.num_lines():
             # Find the earliest character that might indicate a template argument
-            line = clean_lines.elided[linenum]
+            line = clean_lines.elided[line_num]
             match = Match(r"^[^{};=\[\]\.<>]*(.)", line[pos:])
             if not match:
-                linenum += 1
+                line_num += 1
                 pos = 0
                 continue
             token = match.group(1)
@@ -126,21 +130,21 @@ class NestingState(object):
             if token != "<":
                 pos += 1
                 if pos >= len(line):
-                    linenum += 1
+                    line_num += 1
                     pos = 0
                 continue
 
             # We can't be sure if we just find a single '<', and need to
             # find the matching '>'.
-            (_, end_line, end_pos) = CloseExpression(clean_lines, linenum, pos - 1)
+            (_, end_line, end_pos) = CloseExpression(clean_lines, line_num, pos - 1)
             if end_pos < 0:
                 # Not sure if template argument list or syntax error in file
                 return False
-            linenum = end_line
+            line_num = end_line
             pos = end_pos
         return False
 
-    def UpdatePreprocessor(self, line):
+    def update_preprocessor(self, line: str) -> None:
         """Update preprocessor stack.
 
         We need to handle preprocessors due to classes like this:
@@ -159,7 +163,7 @@ class NestingState(object):
           these do not affect nesting stack.
 
         Args:
-          line: current line to check.
+            line: current line to check.
         """
         if Match(r"^\s*#\s*(if|ifdef|ifndef)\b", line):
             # Beginning of #if block, save the nesting stack here.  The saved
@@ -196,24 +200,67 @@ class NestingState(object):
                 # TODO(unknown): unexpected #endif, issue warning?
                 pass
 
-    # TODO(unknown): Update() is too long, but we will refactor later.
-    def Update(
+    def innermost_class(self) -> Optional[_ClassInfo]:
+        """Get class info on the top of the stack.
+
+        Returns:
+            A _ClassInfo object if we are inside a class, or None otherwise.
+        """
+        for i in range(len(self.stack), 0, -1):
+            classinfo = self.stack[i - 1]
+            if isinstance(classinfo, _ClassInfo):
+                return classinfo
+        return None
+
+    def check_completed_blocks(self, state: LintState, filename: str, error: ErrorLogger) -> None:
+        """Checks that all classes and namespaces have been completely parsed.
+
+        Call this when all lines in a file have been processed.
+
+        Args:
+            state: The current state of the linting process.
+            filename: The name of the current file.
+            error: The function to call with any errors found.
+        """
+        # Note: This test can result in false positives if #ifdef constructs
+        # get in the way of brace matching. See the testBuildClass test in
+        # cpplint_unittest.py for an example of this.
+        for obj in self.stack:
+            if isinstance(obj, _ClassInfo):
+                error(
+                    state,
+                    filename,
+                    obj.starting_line_num,
+                    "build/class",
+                    5,
+                    f"Failed to find complete declaration of class {obj.name}",
+                )
+            elif isinstance(obj, _NamespaceInfo):
+                error(
+                    state,
+                    filename,
+                    obj.starting_line_num,
+                    "build/namespaces",
+                    5,
+                    f"Failed to find complete declaration of namespace {obj.name}",
+                )
+
+    def update(
         self,
         state: LintState,
-        filename: str,
         clean_lines: CleansedLines,
-        linenum: int,
+        line_num: int,
         error: ErrorLogger,
-    ):
+    ) -> None:
         """Update nesting state with current line.
 
         Args:
-          filename: The name of the current file.
-          clean_lines: A CleansedLines instance containing the file.
-          linenum: The number of the line to check.
-          error: The function to call with any errors found.
+            state: The current state of the linting process.
+            clean_lines: A CleansedLines instance containing the file.
+            line_num: The number of the line to check.
+            error: The function to call with any errors found.
         """
-        line = clean_lines.elided[linenum]
+        line = clean_lines.elided[line_num]
 
         # Remember top of the previous nesting stack.
         #
@@ -226,10 +273,25 @@ class NestingState(object):
             self.previous_stack_top = None
 
         # Update pp_stack
-        self.UpdatePreprocessor(line)
 
-        # Count parentheses.  This is to avoid adding struct arguments to
-        # the nesting stack.
+        # Update access control if we are inside a class/struct.
+        self.update_preprocessor(line)
+        # Count parentheses.  This is to avoid adding struct arguments to the nesting stack.
+        self._count_parentheses(line)
+
+        line = self._consume_namespace_declarations(line, line_num)
+        line = self._process_class_declaration(clean_lines, line, line_num)
+
+        # If we have not yet seen the opening brace for the innermost block,
+        # run checks here.
+        if not self.seen_open_brace():
+            self.stack[-1].check_begin(clean_lines, line_num, error)
+
+        self._update_access_controls(state, clean_lines.file_name, line, line_num, error)
+        # Consume braces or semicolons from what's left of the line
+        line = self._consume_braces_and_semicolons(state, clean_lines, line, line_num, error)
+
+    def _count_parentheses(self, line: str) -> None:
         if self.stack:
             inner_block = self.stack[-1]
             depth_change = line.count("(") - line.count(")")
@@ -248,9 +310,11 @@ class NestingState(object):
                 # Exit assembly block
                 inner_block.inline_asm = _END_ASM
 
+    def _consume_namespace_declarations(self, line: str, line_num: int) -> str:
         # Consume namespace declaration at the beginning of the line.  Do
         # this in a loop so that we catch same line declarations like this:
-        #   namespace proto2 { namespace bridge { class MessageSet; } }
+        # namespace proto2 { namespace bridge { class MessageSet; } }
+
         while True:
             # Match start of namespace.  The "\b\s*" below catches namespace
             # declarations even if it weren't followed by a whitespace, this
@@ -260,14 +324,58 @@ class NestingState(object):
             if not namespace_decl_match:
                 break
 
-            new_namespace = _NamespaceInfo(namespace_decl_match.group(1), linenum)
+            new_namespace = _NamespaceInfo(namespace_decl_match.group(1), line_num)
             self.stack.append(new_namespace)
 
             line = namespace_decl_match.group(2)
             if line.find("{") != -1:
                 new_namespace.seen_open_brace = True
                 line = line[line.find("{") + 1 :]
+        return line
 
+    def _consume_braces_and_semicolons(
+        self, state: LintState, clean_lines: CleansedLines, line: str, line_num: int, error: ErrorLogger
+    ) -> str:
+        while True:
+            # Match first brace, semicolon, or closed parenthesis.
+            matched = Match(r"^[^{;)}]*([{;)}])(.*)$", line)
+            if not matched:
+                break
+
+            token = matched.group(1)
+            if token == "{":
+                # If namespace or class hasn't seen an opening brace yet, mark
+                # namespace/class head as complete.  Push a new block onto the
+                # stack otherwise.
+                if not self.seen_open_brace():
+                    self.stack[-1].seen_open_brace = True
+                elif Match(r'^extern\s*"[^"]*"\s*\{', line):
+                    self.stack.append(_ExternCInfo(line_num))
+                else:
+                    self.stack.append(BlockInfo(line_num, True))
+                    if _MATCH_ASM.match(line):
+                        self.stack[-1].inline_asm = _BLOCK_ASM
+
+            elif token in (";", ")"):
+                # If we haven't seen an opening brace yet, but we already saw
+                # a semicolon, this is probably a forward declaration.  Pop
+                # the stack for these.
+                #
+                # Similarly, if we haven't seen an opening brace yet, but we
+                # already saw a closing parenthesis, then these are probably
+                # function arguments with extra "class" or "struct" keywords.
+                # Also pop these stack for these.
+                if not self.seen_open_brace():
+                    self.stack.pop()
+            else:  # token == '}'
+                # Perform end of block checks and pop the stack.
+                if self.stack:
+                    self.stack[-1].CheckEnd(state, clean_lines, line_num, error)
+                    self.stack.pop()
+            line = matched.group(2)
+        return line
+
+    def _process_class_declaration(self, clean_lines: CleansedLines, line: str, line_num: int) -> str:
         # Look for a class declaration in whatever is left of the line
         # after parsing namespaces.  The regexp accounts for decorated classes
         # such as in:
@@ -290,27 +398,25 @@ class NestingState(object):
             # an unmatched '>'.  If we see one, assume we are inside a
             # template argument list.
             end_declaration = len(class_decl_match.group(1))
-            if not self.InTemplateArgumentList(clean_lines, linenum, end_declaration):
+            if not self.in_template_argument_list(clean_lines, line_num, end_declaration):
                 self.stack.append(
                     _ClassInfo(
                         class_decl_match.group(3),
                         class_decl_match.group(2),
                         clean_lines,
-                        linenum,
+                        line_num,
                     )
                 )
                 line = class_decl_match.group(4)
+        return line
 
-        # If we have not yet seen the opening brace for the innermost block,
-        # run checks here.
-        if not self.SeenOpenBrace():
-            self.stack[-1].check_begin(filename, clean_lines, linenum, error)
-
-        # Update access control if we are inside a class/struct
+    def _update_access_controls(
+        self, state: LintState, filename: str, line: str, line_num: int, error: ErrorLogger
+    ) -> None:
         if self.stack and isinstance(self.stack[-1], _ClassInfo):
             classinfo = self.stack[-1]
             access_match = Match(
-                r"^(.*)\b(public|private|protected|signals)(\s+(?:slots\s*)?)?" r":(?:[^:]|$)",
+                r"^(.*)\b(public|private|protected|signals)(\s+(?:slots\s*)?)?:(?:[^:]|$)",
                 line,
             )
             if access_match:
@@ -330,90 +436,8 @@ class NestingState(object):
                     error(
                         state,
                         filename,
-                        linenum,
+                        line_num,
                         "whitespace/indent",
                         3,
-                        "%s%s: should be indented +1 space inside %s" % (access_match.group(2), slots, parent),
+                        f"{access_match.group(2)}{slots}: should be indented +1 space inside {parent}",
                     )
-
-        # Consume braces or semicolons from what's left of the line
-        while True:
-            # Match first brace, semicolon, or closed parenthesis.
-            matched = Match(r"^[^{;)}]*([{;)}])(.*)$", line)
-            if not matched:
-                break
-
-            token = matched.group(1)
-            if token == "{":
-                # If namespace or class hasn't seen a opening brace yet, mark
-                # namespace/class head as complete.  Push a new block onto the
-                # stack otherwise.
-                if not self.SeenOpenBrace():
-                    self.stack[-1].seen_open_brace = True
-                elif Match(r'^extern\s*"[^"]*"\s*\{', line):
-                    self.stack.append(_ExternCInfo(linenum))
-                else:
-                    self.stack.append(BlockInfo(linenum, True))
-                    if _MATCH_ASM.match(line):
-                        self.stack[-1].inline_asm = _BLOCK_ASM
-
-            elif token == ";" or token == ")":
-                # If we haven't seen an opening brace yet, but we already saw
-                # a semicolon, this is probably a forward declaration.  Pop
-                # the stack for these.
-                #
-                # Similarly, if we haven't seen an opening brace yet, but we
-                # already saw a closing parenthesis, then these are probably
-                # function arguments with extra "class" or "struct" keywords.
-                # Also pop these stack for these.
-                if not self.SeenOpenBrace():
-                    self.stack.pop()
-            else:  # token == '}'
-                # Perform end of block checks and pop the stack.
-                if self.stack:
-                    self.stack[-1].CheckEnd(state, filename, clean_lines, linenum, error)
-                    self.stack.pop()
-            line = matched.group(2)
-
-    def InnermostClass(self):
-        """Get class info on the top of the stack.
-
-        Returns:
-          A _ClassInfo object if we are inside a class, or None otherwise.
-        """
-        for i in range(len(self.stack), 0, -1):
-            classinfo = self.stack[i - 1]
-            if isinstance(classinfo, _ClassInfo):
-                return classinfo
-        return None
-
-    def CheckCompletedBlocks(self, state, filename, error):
-        """Checks that all classes and namespaces have been completely parsed.
-
-        Call this when all lines in a file have been processed.
-        Args:
-          filename: The name of the current file.
-          error: The function to call with any errors found.
-        """
-        # Note: This test can result in false positives if #ifdef constructs
-        # get in the way of brace matching. See the testBuildClass test in
-        # cpplint_unittest.py for an example of this.
-        for obj in self.stack:
-            if isinstance(obj, _ClassInfo):
-                error(
-                    state,
-                    filename,
-                    obj.starting_line_num,
-                    "build/class",
-                    5,
-                    "Failed to find complete declaration of class %s" % obj.name,
-                )
-            elif isinstance(obj, _NamespaceInfo):
-                error(
-                    state,
-                    filename,
-                    obj.starting_line_num,
-                    "build/namespaces",
-                    5,
-                    "Failed to find complete declaration of namespace %s" % obj.name,
-                )

@@ -1,4 +1,4 @@
-# This class is a lame mock of codecs. We do not verify filename, mode, or
+# This class is a lame mock of codecs. We do not verify file_name, mode, or
 # encoding, but for the current use case it is not needed.
 class MockIo(object):
     def __init__(self, mock_file):

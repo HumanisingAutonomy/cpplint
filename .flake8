@@ -9,8 +9,8 @@ exclude =
     halint.egg-info,
     test-results,
 max-line-length = 120
-select = B,B9,B950,BLK,C,D,DAR,E,F,I,S,W
-ignore = E203, E501, W503, D107
+select = A,ANN,B,B9,B950,BLK,C,D,DAR,E,F,I,N,PT,PL,S,W
+ignore = ANN101, ANN102, E203, E501, W503, D107
 application-import-names = halint,tests
 import-order-style = google
 per-file-ignores =

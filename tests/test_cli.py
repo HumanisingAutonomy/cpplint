@@ -135,7 +135,7 @@ class TemporaryFolderClassSetup:
         cmd = BASE_CMD + self.get_extra_command_args(rel_cwd) + args
         cwd = os.path.join(self._root, rel_cwd)
         # command to reproduce, do not forget first two lines have special meaning
-        print("\ncd " + cwd + " && " + cmd + " 2> <filename>")
+        print("\ncd " + cwd + " && " + cmd + " 2> <file_name>")
         (status, out, err) = RunShellCommand(cmd, cwd)
         assert expected_status, status == "bad command status %s" % status
         prefix = "Failed check in %s comparing to %s for command: %s" % (

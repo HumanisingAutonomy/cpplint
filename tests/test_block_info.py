@@ -10,7 +10,7 @@ class TestBlockInfo(CpplintTestBase):
     find_next_multiline_comment_start_data = [
         [[""], 1],
         [["a", "b", "/* c"], 2],
-        [['char a[] = "/*";'], 1]  # not recognized as comment.
+        [['char a[] = "/*";'], 1],  # not recognized as comment.
     ]
 
     @pytest.mark.parametrize("lines, expected_index", find_next_multiline_comment_start_data)

@@ -3,13 +3,11 @@ import re
 from .regex import Match, Search
 
 _RE_PATTERN_INCLUDE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]*)[>"].*$')
-# Matches standard C++ escape sequences per 2.13.2.3 of the C++ standard.
-_RE_PATTERN_CLEANSE_LINE_ESCAPES = re.compile(r'\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)')
 # Match a single C style comment on the same line.
 _RE_PATTERN_C_COMMENTS = r"/\*(?:[^*]|\*(?!/))*\*/"
 # Matches multi-line C style comments.
-# This RE is a little bit more complicated than one might expect, because we
-# have to take care of space removals tools so we can handle comments inside
+# This RE is a bit more complicated than one might expect, because we
+# have to take care of space removals tools so that we can handle comments inside
 # statements better.
 # The current rule is: We only clear spaces from both sides when we're at the
 # end of the line. Otherwise, we try to remove spaces from the right side,
@@ -29,7 +27,7 @@ _RE_PATTERN_CLEANSE_LINE_C_COMMENTS = re.compile(
 )
 
 
-class CleansedLines(object):
+class CleansedLines:
     """Holds 4 copies of all lines with different preprocessing applied to them.
 
     1) elided member contains lines without strings and comments.
@@ -38,35 +36,52 @@ class CleansedLines(object):
     4) lines_without_raw_strings member is same as raw_lines, but with C++11 raw
        strings removed.
     All these members are of <type 'list'>, and of the same length.
+
+    Args:
+        lines: A list of all the lines in a file
+        file_name: the name of the file to which the lines belong.
     """
 
-    def __init__(self, lines):
+    # Matches standard C++ escape sequences per 2.13.2.3 of the C++ standard.
+    _RE_PATTERN_CLEANSE_LINE_ESCAPES = re.compile(r'\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)')
+
+    def __init__(self, lines: list[str], file_name: str) -> None:
+        self._file_name = file_name
         self.elided = []
         self.lines = []
         self.raw_lines = lines
-        self.num_lines = len(lines)
-        self.lines_without_raw_strings = CleanseRawStrings(lines)
+        self._num_lines = len(lines)
+        self.lines_without_raw_strings = cleanse_raw_strings(lines)
         # # pylint: disable=consider-using-enumerate
-        for linenum in range(len(self.lines_without_raw_strings)):
-            self.lines.append(CleanseComments(self.lines_without_raw_strings[linenum]))
-            elided = self._CollapseStrings(self.lines_without_raw_strings[linenum])
-            self.elided.append(CleanseComments(elided))
+        for line_num in range(len(self.lines_without_raw_strings)):
+            self.lines.append(cleanse_comments(self.lines_without_raw_strings[line_num]))
+            elided = self.collapse_strings(self.lines_without_raw_strings[line_num])
+            self.elided.append(cleanse_comments(elided))
 
-    def NumLines(self):
-        """Returns the number of lines represented."""
-        return self.num_lines
+    @property
+    def file_name(self) -> str:
+        """The name of the file from which the lines are derived."""
+        return self._file_name
 
-    @staticmethod
-    def _CollapseStrings(elided):
-        """Collapses strings and chars on a line to simple "" or '' blocks.
-
-        We nix strings first so we're not fooled by text like '"http://"'
-
-        Args:
-          elided: The line being processed.
+    def num_lines(self) -> int:
+        """Returns the number of lines represented.
 
         Returns:
-          The line with collapsed strings.
+            The number of represented lines.
+        """
+        return self._num_lines
+
+    @staticmethod
+    def collapse_strings(elided: str) -> str:
+        """Collapses strings and chars on a line to simple "" or '' blocks.
+
+        We nix strings first so that we're not fooled by text like '"http://"'
+
+        Args:
+            elided: The line being processed.
+
+        Returns:
+            The line with collapsed strings.
         """
         if _RE_PATTERN_INCLUDE.match(elided):
             return elided
@@ -74,7 +89,7 @@ class CleansedLines(object):
         # Remove escaped characters first to make quote/single quote collapsing
         # basic.  Things that look like escaped characters shouldn't occur
         # outside of strings and chars.
-        elided = _RE_PATTERN_CLEANSE_LINE_ESCAPES.sub("", elided)
+        elided = CleansedLines._RE_PATTERN_CLEANSE_LINE_ESCAPES.sub("", elided)
 
         # Replace quoted strings and digit separators.  Both single quotes
         # and double quotes are processed in the same loop, otherwise
@@ -93,7 +108,7 @@ class CleansedLines(object):
                 second_quote = tail.find('"')
                 if second_quote >= 0:
                     collapsed += head + '""'
-                    elided = tail[second_quote + 1 :]
+                    elided = tail[second_quote + 1:]
                 else:
                     # Unmatched double quote, don't bother processing the rest
                     # of the line since this is probably a multiline string.
@@ -115,7 +130,7 @@ class CleansedLines(object):
                     second_quote = tail.find("'")
                     if second_quote >= 0:
                         collapsed += head + "''"
-                        elided = tail[second_quote + 1 :]
+                        elided = tail[second_quote + 1:]
                     else:
                         # Unmatched single quote
                         collapsed += elided
@@ -124,7 +139,7 @@ class CleansedLines(object):
         return collapsed
 
 
-def CleanseComments(line):
+def cleanse_comments(line):
     """Removes //-comments and single-line C-style /* */ comments.
 
     Args:
@@ -133,14 +148,14 @@ def CleanseComments(line):
     Returns:
       The line with single-line comments removed.
     """
-    commentpos = line.find("//")
-    if commentpos != -1 and not IsCppString(line[:commentpos]):
-        line = line[:commentpos].rstrip()
+    comment_position = line.find("//")
+    if comment_position != -1 and not _is_cpp_string(line[:comment_position]):
+        line = line[:comment_position].rstrip()
     # get rid of /* ... */
     return _RE_PATTERN_CLEANSE_LINE_C_COMMENTS.sub("", line)
 
 
-def CleanseRawStrings(raw_lines):
+def cleanse_raw_strings(raw_lines):
     """Removes C++11 raw strings from lines.
 
       Before:
@@ -171,7 +186,7 @@ def CleanseRawStrings(raw_lines):
                 # line and resume copying the original lines, and also insert
                 # a "" on the last line.
                 leading_space = Match(r"^(\s*)\S", line)
-                line = leading_space.group(1) + '""' + line[end + len(delimiter) :]
+                line = leading_space.group(1) + '""' + line[end + len(delimiter):]
                 delimiter = None
             else:
                 # Haven't found the end yet, append a blank line.
@@ -198,7 +213,7 @@ def CleanseRawStrings(raw_lines):
                 end = matched.group(3).find(delimiter)
                 if end >= 0:
                     # Raw string ended on same line
-                    line = matched.group(1) + '""' + matched.group(3)[end + len(delimiter) :]
+                    line = matched.group(1) + '""' + matched.group(3)[end + len(delimiter):]
                     delimiter = None
                 else:
                     # Start of a multi-line raw string
@@ -213,7 +228,7 @@ def CleanseRawStrings(raw_lines):
     return lines_without_raw_strings
 
 
-def IsCppString(line):
+def _is_cpp_string(line) -> bool:
     """Does line terminate so, that the next symbol is in string constant.
 
     This function does not consider single-line nor multi-line comments.

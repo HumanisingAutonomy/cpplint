@@ -10,9 +10,9 @@ from .block_info import (
 )
 from .cleansed_lines import _RE_PATTERN_INCLUDE, CleansedLines
 from .file_info import FileInfo
-from .include_state import _IncludeState
+from .include_state import IncludeState
 from .lintstate import LintState
-from .nesting_state import NestingState
+from ._nesting_state import NestingState
 from .regex import Match, Search
 
 
@@ -22,7 +22,7 @@ def CheckLanguage(
     clean_lines: CleansedLines,
     linenum: int,
     file_extension: str,
-    include_state: _IncludeState,
+    include_state: IncludeState,
     nesting_state: NestingState,
     error: Callable[[str, int, str, int, str], None],
 ):
@@ -35,8 +35,8 @@ def CheckLanguage(
       filename: The name of the current file.
       clean_lines: A CleansedLines instance containing the file.
       linenum: The number of the line to check.
-      file_extension: The extension (without the dot) of the filename.
-      include_state: An _IncludeState instance in which the headers are inserted.
+      file_extension: The extension (without the dot) of the file_name.
+      include_state: An IncludeState instance in which the headers are inserted.
       nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
       error: The function to call with any errors found.
@@ -59,7 +59,7 @@ def CheckLanguage(
     # to silence warnings for conditional includes.
     match = Match(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b", line)
     if match:
-        include_state.ResetSection(match.group(1))
+        include_state.reset_section(match.group(1))
 
     # Perform other checks now that we are sure that this is not an include line
     CheckCasts(state, filename, clean_lines, linenum, error)
@@ -258,7 +258,7 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
       filename: The name of the current file.
       clean_lines: A CleansedLines instance containing the file.
       linenum: The number of the line to check.
-      include_state: An _IncludeState instance in which the headers are inserted.
+      include_state: An IncludeState instance in which the headers are inserted.
       error: The function to call with any errors found.
     """
     fileinfo = FileInfo(filename)
@@ -296,7 +296,7 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
     if match:
         include = match.group(2)
         used_angle_brackets = match.group(1) == "<"
-        duplicate_line = include_state.FindHeader(include)
+        duplicate_line = include_state.find_header(include)
         if duplicate_line >= 0:
             error(
                 state,
@@ -310,7 +310,7 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
 
         for extension in state.GetNonHeaderExtensions():
             if include.endswith("." + extension) and os.path.dirname(
-                fileinfo.RepositoryName(state._repository)
+                fileinfo.repository_name(state._repository)
             ) != os.path.dirname(include):
                 error(
                     state,
@@ -323,13 +323,13 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
                 return
 
         # We DO want to include a 3rd party looking header if it matches the
-        # filename. Otherwise we get an erroneous error "...should include its
+        # file_name. Otherwise we get an erroneous error "...should include its
         # header" error later.
         third_src_header = False
         for ext in state.GetHeaderExtensions():
-            basefilename = filename[0 : len(filename) - len(fileinfo.Extension())]
+            basefilename = filename[0 : len(filename) - len(fileinfo.extension())]
             headerfile = basefilename + "." + ext
-            headername = FileInfo(headerfile).RepositoryName(state._repository)
+            headername = FileInfo(headerfile).repository_name(state._repository)
             if headername in include or include in headername:
                 third_src_header = True
                 break
@@ -348,7 +348,7 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
             # using a number of techniques. The include_state object keeps
             # track of the highest type seen, and complains if we see a
             # lower type after that.
-            error_message = include_state.CheckNextIncludeOrder(
+            error_message = include_state.check_next_include_order(
                 _ClassifyInclude(state, fileinfo, include, used_angle_brackets, state._include_order)
             )
             if error_message:
@@ -358,10 +358,10 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
                     linenum,
                     "build/include_order",
                     4,
-                    "%s. Should be: %s.h, c system, c++ system, other." % (error_message, fileinfo.BaseName()),
+                    "%s. Should be: %s.h, c system, c++ system, other." % (error_message, fileinfo.base_name()),
                 )
-            canonical_include = include_state.CanonicalizeAlphabeticalOrder(include)
-            if not include_state.IsInAlphabeticalOrder(clean_lines, linenum, canonical_include):
+            canonical_include = include_state.canonicalize_alphabetical_order(include)
+            if not include_state.is_in_alphabetical_order(clean_lines, linenum, canonical_include):
                 error(
                     state,
                     filename,
@@ -370,7 +370,7 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
                     4,
                     'Include "%s" not in alphabetical order' % include,
                 )
-            include_state.SetLastHeader(canonical_include)
+            include_state.set_last_header(canonical_include)
 
 
 def CheckCasts(state, filename, clean_lines, linenum, error):
@@ -508,7 +508,7 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
                 _, y2, x2 = CloseExpression(clean_lines, y1, x1)
                 if x2 >= 0:
                     extended_line = clean_lines.elided[y2][x2:]
-                    if y2 < clean_lines.NumLines() - 1:
+                    if y2 < clean_lines.num_lines() - 1:
                         extended_line += clean_lines.elided[y2 + 1]
                     if Match(r"\s*(?:->|\[)", extended_line):
                         parenthesis_error = True
@@ -615,7 +615,7 @@ def CheckGlobalStatic(state, filename, clean_lines, linenum, error):
     line = clean_lines.elided[linenum]
 
     # Match two lines at a time to support multiline declarations
-    if linenum + 1 < clean_lines.NumLines() and not Search(r"[;({]", line):
+    if linenum + 1 < clean_lines.num_lines() and not Search(r"[;({]", line):
         line += clean_lines.elided[linenum + 1].strip()
 
     # Check for people declaring static/global STL strings at the top level.

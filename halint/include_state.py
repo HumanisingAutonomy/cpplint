@@ -1,7 +1,8 @@
+from .cleansed_lines import CleansedLines
 from .regex import Match
 
 
-class _IncludeState(object):
+class IncludeState(object):
     """Tracks line numbers for includes, and the order in which includes appear.
 
     include_list contains list of lists of (header, line number) pairs.
@@ -24,7 +25,7 @@ class _IncludeState(object):
     _OTHER_H_SECTION = 5
 
     # These constants define types of headers for use with
-    # _IncludeState.CheckNextIncludeOrder().
+    # IncludeState.CheckNextIncludeOrder().
     _C_SYS_HEADER = 1
     _CPP_SYS_HEADER = 2
     _OTHER_SYS_HEADER = 3
@@ -50,20 +51,20 @@ class _IncludeState(object):
         _OTHER_H_SECTION: "other header",
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.include_list = [[]]
         self._section = None
         self._last_header = None
-        self.ResetSection("")
+        self.reset_section("")
 
-    def FindHeader(self, header):
+    def find_header(self, header: str) -> int:
         """Check if a header has already been included.
 
         Args:
-          header: header to check.
+            header: header to check.
+
         Returns:
-          Line number of previous occurrence, or -1 if the header has not
-          been seen before.
+            Line number of previous occurrence, or -1 if the header has not been seen before.
         """
         for section_list in self.include_list:
             for f in section_list:
@@ -71,11 +72,11 @@ class _IncludeState(object):
                     return f[1]
         return -1
 
-    def ResetSection(self, directive):
+    def reset_section(self, directive: str) -> None:
         """Reset section checking for preprocessor directive.
 
         Args:
-          directive: preprocessor directive (e.g. "if", "else").
+            directive: preprocessor directive (e.g. "if", "else").
         """
         # The name of the current section.
         self._section = self._INITIAL_SECTION
@@ -89,10 +90,16 @@ class _IncludeState(object):
         elif directive in ("else", "elif"):
             self.include_list[-1] = []
 
-    def SetLastHeader(self, header_path):
+    def set_last_header(self, header_path: str) -> None:
+        """Set the value of the final header.
+
+        Args:
+            header_path: The last header
+        """
         self._last_header = header_path
 
-    def CanonicalizeAlphabeticalOrder(self, header_path):
+    @staticmethod
+    def canonicalize_alphabetical_order(header_path: str) -> str:
         """Returns a path canonicalized for alphabetical comparison.
 
         - replaces "-" with "_" so they both cmp the same.
@@ -100,52 +107,48 @@ class _IncludeState(object):
         - lowercase everything, just in case.
 
         Args:
-          header_path: Path to be canonicalized.
+            header_path: Path to be canonicalized.
 
         Returns:
-          Canonicalized path.
+            Canonicalized path.
         """
         return header_path.replace("-inl.h", ".h").replace("-", "_").lower()
 
-    def IsInAlphabeticalOrder(self, clean_lines, linenum, header_path):
+    def is_in_alphabetical_order(self, clean_lines: CleansedLines, line_num: int, header_path: str) -> bool:
         """Check if a header is in alphabetical order with the previous header.
 
         Args:
-          clean_lines: A CleansedLines instance containing the file.
-          linenum: The number of the line to check.
-          header_path: Canonicalized header to be checked.
+            clean_lines: A CleansedLines instance containing the file.
+            line_num: The number of the line to check.
+            header_path: Canonicalized header to be checked.
 
         Returns:
-          Returns true if the header is in alphabetical order.
+            Returns true if the header is in alphabetical order.
         """
         # If previous section is different from current section, _last_header will
         # be reset to empty string, so it's always less than current header.
         #
         # If previous line was a blank line, assume that the headers are
         # intentionally sorted the way they are.
-        if self._last_header > header_path and Match(r"^\s*#\s*include\b", clean_lines.elided[linenum - 1]):
+        if self._last_header > header_path and Match(r"^\s*#\s*include\b", clean_lines.elided[line_num - 1]):
             return False
         return True
 
-    def CheckNextIncludeOrder(self, header_type):
+    def check_next_include_order(self, header_type: int) -> str:
         """Returns a non-empty error message if the next header is out of order.
 
         This function also updates the internal state to be ready to check
         the next include.
 
         Args:
-          header_type: One of the _XXX_HEADER constants defined above.
+            header_type: One of the _XXX_HEADER constants defined above.
 
         Returns:
-          The empty string if the header is in the right order, or an
-          error message describing what's wrong.
+            The empty string if the header is in the right order, or an
+            error message describing what's wrong.
 
         """
-        error_message = "Found %s after %s" % (
-            self._TYPE_NAMES[header_type],
-            self._SECTION_NAMES[self._section],
-        )
-
+        error_message = f"Found {self._TYPE_NAMES[header_type]} after {self._SECTION_NAMES[self._section]}"
         last_section = self._section
 
         if header_type == self._C_SYS_HEADER:

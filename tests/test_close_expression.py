@@ -5,9 +5,9 @@ from halint.cleansed_lines import CleansedLines
 
 
 class TestCloseExpression:
-    @pytest.fixture(autouse=True)
-    def setUp(self):
-        self.lines = CleansedLines(
+    @pytest.fixture()
+    def lines(self):
+        return CleansedLines(
             #           1         2         3         4         5
             # 0123456789012345678901234567890123456789012345678901234567890
             [
@@ -33,10 +33,11 @@ class TestCloseExpression:
                 "  return a.get() == b.get();",
                 "}",
                 "// Line 21",
-            ]
+            ],
+            "foo.h"
         )
 
-    def testCloseExpression(self):
+    def testCloseExpression(self, lines):
         # List of positions to test:
         # (start line, start position, end line, end position + 1)
         positions = [
@@ -55,10 +56,10 @@ class TestCloseExpression:
             (18, 47, 20, 1),
         ]
         for p in positions:
-            (_, line, column) = CloseExpression(self.lines, p[0], p[1])
+            (_, line, column) = CloseExpression(lines, p[0], p[1])
             assert (p[2], p[3]) == (line, column)
 
-    def testReverseCloseExpression(self):
+    def testReverseCloseExpression(self, lines):
         # List of positions to test:
         # (end line, end position, start line, start position)
         positions = [
@@ -77,5 +78,5 @@ class TestCloseExpression:
             (20, 0, 18, 47),
         ]
         for p in positions:
-            (_, line, column) = ReverseCloseExpression(self.lines, p[0], p[1])
+            (_, line, column) = ReverseCloseExpression(lines, p[0], p[1])
             assert (p[2], p[3]) == (line, column)

@@ -56,25 +56,17 @@ from .block_info import (
     GetHeaderGuardCPPVariable,
     ReverseCloseExpression,
     FindNextMultiLineCommentStart,
-    FindNextMultiLineCommentEnd
+    FindNextMultiLineCommentEnd,
 )
 from .check_line import ProcessLine
-from .cleansed_lines import _RE_PATTERN_INCLUDE, CleanseComments, CleansedLines
-from .error import (
-    ErrorLogger,
-    ParseNolintSuppressions,
-    ProcessGlobalSuppresions,
-    ResetNolintSuppressions
-)
-from .file_info import FileInfo, _IsExtension
-from .function_state import _FunctionState
-from .include_state import _IncludeState
+from .cleansed_lines import _RE_PATTERN_INCLUDE, cleanse_comments, CleansedLines
+from .error import ErrorLogger, ParseNolintSuppressions, process_global_suppressions, ResetNolintSuppressions
+from .file_info import FileInfo, is_extension
+from .function_state import FunctionState
+from .include_state import IncludeState
 from .lintstate import LintState
-from .nesting_state import NestingState
+from ._nesting_state import NestingState
 from .regex import Match, Search
-
-
-
 
 
 def RemoveMultiLineCommentsFromRange(lines, begin, end):
@@ -87,24 +79,24 @@ def RemoveMultiLineCommentsFromRange(lines, begin, end):
 
 def RemoveMultiLineComments(state, filename, lines, error):
     """Removes multiline (c-style) comments from lines."""
-    lineix = 0
-    while lineix < len(lines):
-        lineix_begin = FindNextMultiLineCommentStart(lines, lineix)
-        if lineix_begin >= len(lines):
+    line_index = 0
+    while line_index < len(lines):
+        line_index_begin = FindNextMultiLineCommentStart(lines, line_index)
+        if line_index_begin >= len(lines):
             return
-        lineix_end = FindNextMultiLineCommentEnd(lines, lineix_begin)
-        if lineix_end >= len(lines):
+        line_index_end = FindNextMultiLineCommentEnd(lines, line_index_begin)
+        if line_index_end >= len(lines):
             error(
                 state,
                 filename,
-                lineix_begin + 1,
+                line_index_begin + 1,
                 "readability/multiline_comment",
                 5,
                 "Could not find end of multi-line comment",
             )
             return
-        RemoveMultiLineCommentsFromRange(lines, lineix_begin, lineix_end + 1)
-        lineix = lineix_end + 1
+        RemoveMultiLineCommentsFromRange(lines, line_index_begin, line_index_end + 1)
+        line_index = line_index_end + 1
 
 
 def CheckForCopyright(state, filename, lines, error):
@@ -277,20 +269,20 @@ def CheckForHeaderGuard(
     )
 
 
-def CheckHeaderFileIncluded(state: LintState, filename: int, include_state: _IncludeState, error: ErrorLogger):
+def CheckHeaderFileIncluded(state: LintState, filename: int, include_state: IncludeState, error: ErrorLogger):
     """Logs an error if a source file does not include its header."""
 
     # Do not check test files
     fileinfo = FileInfo(filename)
-    if Search(_TEST_FILE_SUFFIX, fileinfo.BaseName()):
+    if Search(_TEST_FILE_SUFFIX, fileinfo.base_name()):
         return
 
     for ext in state.GetHeaderExtensions():
-        basefilename = filename[0 : len(filename) - len(fileinfo.Extension())]
+        basefilename = filename[0 : len(filename) - len(fileinfo.extension())]
         headerfile = basefilename + "." + ext
         if not os.path.exists(headerfile):
             continue
-        headername = FileInfo(headerfile).RepositoryName(state._repository)
+        headername = FileInfo(headerfile).repository_name(state._repository)
         first_include = None
         include_uses_unix_dir_aliases = False
         for section_list in include_state.include_list:
@@ -304,7 +296,7 @@ def CheckHeaderFileIncluded(state: LintState, filename: int, include_state: _Inc
                     first_include = f[1]
 
         message = "%s should include its header file %s" % (
-            fileinfo.RepositoryName(state._repository),
+            fileinfo.repository_name(state._repository),
             headername,
         )
         if include_uses_unix_dir_aliases:
@@ -577,22 +569,22 @@ def FilesBelongToSameModule(state: LintState, filename_cc: str, filename_h: str)
       string: the additional prefix needed to open the header file.
     """
     fileinfo_cc = FileInfo(filename_cc)
-    if not fileinfo_cc.Extension().lstrip(".") in state.GetNonHeaderExtensions():
+    if not fileinfo_cc.extension().lstrip(".") in state.GetNonHeaderExtensions():
         return (False, "")
 
     fileinfo_h = FileInfo(filename_h)
-    if not state.IsHeaderExtension(fileinfo_h.Extension().lstrip(".")):
+    if not state.IsHeaderExtension(fileinfo_h.extension().lstrip(".")):
         return (False, "")
 
-    filename_cc = filename_cc[: -(len(fileinfo_cc.Extension()))]
-    matched_test_suffix = Search(_TEST_FILE_SUFFIX, fileinfo_cc.BaseName())
+    filename_cc = filename_cc[: -(len(fileinfo_cc.extension()))]
+    matched_test_suffix = Search(_TEST_FILE_SUFFIX, fileinfo_cc.base_name())
     if matched_test_suffix:
         filename_cc = filename_cc[: -len(matched_test_suffix.group(1))]
 
     filename_cc = filename_cc.replace("/public/", "/")
     filename_cc = filename_cc.replace("/internal/", "/")
 
-    filename_h = filename_h[: -(len(fileinfo_h.Extension()))]
+    filename_h = filename_h[: -(len(fileinfo_h.extension()))]
     if filename_h.endswith("-inl"):
         filename_h = filename_h[: -len("-inl")]
     filename_h = filename_h.replace("/public/", "/")
@@ -622,7 +614,7 @@ def UpdateIncludeState(filename, include_dict, io=codecs):
             linenum = 0
             for line in headerfile:
                 linenum += 1
-                clean_line = CleanseComments(line)
+                clean_line = cleanse_comments(line)
                 match = _RE_PATTERN_INCLUDE.search(clean_line)
                 if match:
                     include = match.group(2)
@@ -636,7 +628,7 @@ def CheckForIncludeWhatYouUse(
     state: LintState,
     filename: str,
     clean_lines: CleansedLines,
-    include_state: _IncludeState,
+    include_state: IncludeState,
     error: ErrorLogger,
     io=codecs,
 ):
@@ -651,7 +643,7 @@ def CheckForIncludeWhatYouUse(
     Args:
       filename: The name of the current file.
       clean_lines: A CleansedLines instance containing the file.
-      include_state: An _IncludeState instance.
+      include_state: An IncludeState instance.
       error: The function to call with any errors found.
       io: The IO factory to use to read the header file. Provided for unittest
           injection.
@@ -659,7 +651,7 @@ def CheckForIncludeWhatYouUse(
     required = {}  # A map of header name to linenumber and the template entity.
     # Example of required: { '<functional>': (1219, 'less<>') }
 
-    for linenum in range(clean_lines.NumLines()):
+    for linenum in range(clean_lines.num_lines()):
         line = clean_lines.elided[linenum]
         if not line or line[0] == "#":
             continue
@@ -699,7 +691,7 @@ def CheckForIncludeWhatYouUse(
     header_found = False
 
     # Use the absolute path so that matching works properly.
-    abs_filename = FileInfo(filename).FullName()
+    abs_filename = FileInfo(filename).full_name()
 
     # For Emacs's flymake.
     # If cpplint is invoked from Emacs's flymake, a temporary file is generated
@@ -870,10 +862,10 @@ def ProcessFileData(
       lines: An array of strings, each representing a line of the file, with the
              last element being empty if the file is terminated with a newline.
       error: A callable to which errors are reported, which takes 4 arguments:
-             filename, line number, error level, and message
+             file_name, line number, error level, and message
       extra_check_functions: An array of additional check functions that will be
                              run on each source line. Each function takes 4
-                             arguments: filename, clean_lines, line, error
+                             arguments: file_name, clean_lines, line, error
     """
     lines = (
         ["// marker so line numbers and indices both start at 1"]
@@ -881,21 +873,21 @@ def ProcessFileData(
         + ["// marker so line numbers end in a known way"]
     )
 
-    include_state = _IncludeState()
-    function_state = _FunctionState()
+    include_state = IncludeState()
+    function_state = FunctionState()
     nesting_state = NestingState()
 
     ResetNolintSuppressions(state)
 
     CheckForCopyright(state, filename, lines, error)
-    ProcessGlobalSuppresions(state, lines)
+    process_global_suppressions(state, lines)
     RemoveMultiLineComments(state, filename, lines, error)
-    clean_lines = CleansedLines(lines)
+    clean_lines = CleansedLines(lines, filename)
 
     if state.IsHeaderExtension(file_extension):
         CheckForHeaderGuard(state, filename, clean_lines, error)
 
-    for line in range(clean_lines.NumLines()):
+    for line in range(clean_lines.num_lines()):
         ProcessLine(
             state,
             filename,
@@ -909,12 +901,12 @@ def ProcessFileData(
             extra_check_functions,
         )
         FlagCxx11Features(state, filename, clean_lines, line, error)
-    nesting_state.CheckCompletedBlocks(state, filename, error)
+    nesting_state.check_completed_blocks(state, filename, error)
 
     CheckForIncludeWhatYouUse(state, filename, clean_lines, include_state, error)
 
     # Check that the .cc file has included its header if it exists.
-    if _IsExtension(file_extension, state.GetNonHeaderExtensions()):
+    if is_extension(file_extension, state.GetNonHeaderExtensions()):
         CheckHeaderFileIncluded(state, filename, include_state, error)
 
     # We check here rather than inside ProcessLine so that we see raw

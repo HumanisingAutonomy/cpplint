@@ -2,7 +2,7 @@ import sys
 import xml
 
 
-class LintState(object):
+class LintState:
     """Maintains module-wide state.."""
 
     # The default state of the category filter. This is overridden by the --filter=

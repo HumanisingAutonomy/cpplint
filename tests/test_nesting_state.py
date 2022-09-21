@@ -9,168 +9,169 @@ from halint.block_info import (
     _ClassInfo,
     _NamespaceInfo,
 )
-from halint.nesting_state import NestingState
+
+from halint import NestingState
 
 from .utils.error_collector import ErrorCollector
 
 
 class TestNestingState:
-    @pytest.fixture(autouse=True)
-    def setUp(self):
-        self.nesting_state = NestingState()
-        self.error_collector = ErrorCollector()
+    @pytest.fixture
+    def nesting_state(self):
+        self.error_collector = ErrorCollector() # TODO: move this into LintState
+        return NestingState()
 
-    def UpdateWithLines(self, state, lines):
-        clean_lines = cpplint.CleansedLines(lines)
-        for line in range(clean_lines.NumLines()):
-            self.nesting_state.Update(state, "test.cc", clean_lines, line, self.error_collector)
+    def update_with_lines(self, state, lines, nesting_state):
+        clean_lines = cpplint.CleansedLines(lines, "foo.h")
+        for line in range(clean_lines.num_lines()):
+            nesting_state.update(state, clean_lines, line, self.error_collector)
 
-    def testEmpty(self, state):
-        self.UpdateWithLines(state, [])
-        assert self.nesting_state.stack == []
+    def test_empty(self, state, nesting_state):
+        self.update_with_lines(state, [], nesting_state)
+        assert nesting_state.stack == []
 
-    def testNamespace(self, state):
-        self.UpdateWithLines(state, ["namespace {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _NamespaceInfo)
-        assert self.nesting_state.stack[0].seen_open_brace
-        assert self.nesting_state.stack[0].name == ""
+    def test_namespace(self, state, nesting_state):
+        self.update_with_lines(state, ["namespace {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _NamespaceInfo)
+        assert nesting_state.stack[0].seen_open_brace
+        assert nesting_state.stack[0].name == ""
 
-        self.UpdateWithLines(state, ["namespace outer { namespace inner"])
-        assert len(self.nesting_state.stack) == 3
-        assert self.nesting_state.stack[0].seen_open_brace
-        assert self.nesting_state.stack[1].seen_open_brace
-        assert not self.nesting_state.stack[2].seen_open_brace
-        assert self.nesting_state.stack[0].name == ""
-        assert self.nesting_state.stack[1].name == "outer"
-        assert self.nesting_state.stack[2].name == "inner"
+        self.update_with_lines(state, ["namespace outer { namespace inner"], nesting_state)
+        assert len(nesting_state.stack) == 3
+        assert nesting_state.stack[0].seen_open_brace
+        assert nesting_state.stack[1].seen_open_brace
+        assert not nesting_state.stack[2].seen_open_brace
+        assert nesting_state.stack[0].name == ""
+        assert nesting_state.stack[1].name == "outer"
+        assert nesting_state.stack[2].name == "inner"
 
-        self.UpdateWithLines(state, ["{"])
-        assert self.nesting_state.stack[2].seen_open_brace
+        self.update_with_lines(state, ["{"], nesting_state)
+        assert nesting_state.stack[2].seen_open_brace
 
-        self.UpdateWithLines(state, ["}", "}}"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["}", "}}"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testDecoratedClass(self, state):
-        self.UpdateWithLines(state, ["class Decorated_123 API A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A"
-        assert not self.nesting_state.stack[0].is_derived
-        assert self.nesting_state.stack[0].class_indent == 0
-        self.UpdateWithLines(state, ["}"])
-        assert len(self.nesting_state.stack) == 0
+    def test_decorated_class(self, state, nesting_state):
+        self.update_with_lines(state, ["class Decorated_123 API A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A"
+        assert not nesting_state.stack[0].is_derived
+        assert nesting_state.stack[0].class_indent == 0
+        self.update_with_lines(state, ["}"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testInnerClass(self, state):
-        self.UpdateWithLines(state, ["class A::B::C {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A::B::C"
-        assert not self.nesting_state.stack[0].is_derived
-        assert self.nesting_state.stack[0].class_indent == 0
-        self.UpdateWithLines(state, ["}"])
-        assert len(self.nesting_state.stack) == 0
+    def test_inner_class(self, state, nesting_state):
+        self.update_with_lines(state, ["class A::B::C {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A::B::C"
+        assert not nesting_state.stack[0].is_derived
+        assert nesting_state.stack[0].class_indent == 0
+        self.update_with_lines(state, ["}"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testClass(self, state):
-        self.UpdateWithLines(state, ["class A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A"
-        assert not self.nesting_state.stack[0].is_derived
-        assert self.nesting_state.stack[0].class_indent == 0
+    def test_class(self, state, nesting_state):
+        self.update_with_lines(state, ["class A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A"
+        assert not nesting_state.stack[0].is_derived
+        assert nesting_state.stack[0].class_indent == 0
 
-        self.UpdateWithLines(state, ["};", "struct B : public A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "B"
-        assert self.nesting_state.stack[0].is_derived
+        self.update_with_lines(state, ["};", "struct B : public A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "B"
+        assert nesting_state.stack[0].is_derived
 
-        self.UpdateWithLines(state, ["};", "class C", ": public A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "C"
-        assert self.nesting_state.stack[0].is_derived
+        self.update_with_lines(state, ["};", "class C", ": public A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "C"
+        assert nesting_state.stack[0].is_derived
 
-        self.UpdateWithLines(state, ["};", "template<T>"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["};", "template<T>"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-        self.UpdateWithLines(state, ["class D {", "  class E {"])
-        assert len(self.nesting_state.stack) == 2
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "D"
-        assert not self.nesting_state.stack[0].is_derived
-        assert isinstance(self.nesting_state.stack[1], _ClassInfo)
-        assert self.nesting_state.stack[1].name == "E"
-        assert not self.nesting_state.stack[1].is_derived
-        assert self.nesting_state.stack[1].class_indent == 2
-        assert self.nesting_state.InnermostClass().name == "E"
+        self.update_with_lines(state, ["class D {", "  class E {"], nesting_state)
+        assert len(nesting_state.stack) == 2
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "D"
+        assert not nesting_state.stack[0].is_derived
+        assert isinstance(nesting_state.stack[1], _ClassInfo)
+        assert nesting_state.stack[1].name == "E"
+        assert not nesting_state.stack[1].is_derived
+        assert nesting_state.stack[1].class_indent == 2
+        assert nesting_state.innermost_class().name == "E"
 
-        self.UpdateWithLines(state, ["}", "}"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["}", "}"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testClassAccess(self, state):
-        self.UpdateWithLines(state, ["class A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].access == "private"
+    def test_class_access(self, state, nesting_state):
+        self.update_with_lines(state, ["class A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].access == "private"
 
-        self.UpdateWithLines(state, [" public:"])
-        assert self.nesting_state.stack[0].access == "public"
-        self.UpdateWithLines(state, [" protracted:"])
-        assert self.nesting_state.stack[0].access == "public"
-        self.UpdateWithLines(state, [" protected:"])
-        assert self.nesting_state.stack[0].access == "protected"
-        self.UpdateWithLines(state, [" private:"])
-        assert self.nesting_state.stack[0].access == "private"
+        self.update_with_lines(state, [" public:"], nesting_state)
+        assert nesting_state.stack[0].access == "public"
+        self.update_with_lines(state, [" protracted:"], nesting_state)
+        assert nesting_state.stack[0].access == "public"
+        self.update_with_lines(state, [" protected:"], nesting_state)
+        assert nesting_state.stack[0].access == "protected"
+        self.update_with_lines(state, [" private:"], nesting_state)
+        assert nesting_state.stack[0].access == "private"
 
-        self.UpdateWithLines(state, ["  struct B {"])
-        assert len(self.nesting_state.stack) == 2
-        assert isinstance(self.nesting_state.stack[1], _ClassInfo)
-        assert self.nesting_state.stack[1].access == "public"
-        assert self.nesting_state.stack[0].access == "private"
+        self.update_with_lines(state, ["  struct B {"], nesting_state)
+        assert len(nesting_state.stack) == 2
+        assert isinstance(nesting_state.stack[1], _ClassInfo)
+        assert nesting_state.stack[1].access == "public"
+        assert nesting_state.stack[0].access == "private"
 
-        self.UpdateWithLines(state, ["   protected  :"])
-        assert self.nesting_state.stack[1].access == "protected"
-        assert self.nesting_state.stack[0].access == "private"
+        self.update_with_lines(state, ["   protected  :"], nesting_state)
+        assert nesting_state.stack[1].access == "protected"
+        assert nesting_state.stack[0].access == "private"
 
-        self.UpdateWithLines(state, ["  }", "}"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["  }", "}"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testStruct(self, state):
-        self.UpdateWithLines(state, ["struct A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A"
-        assert not self.nesting_state.stack[0].is_derived
+    def test_struct(self, state, nesting_state):
+        self.update_with_lines(state, ["struct A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A"
+        assert not nesting_state.stack[0].is_derived
 
-        self.UpdateWithLines(state, ["}", "void Func(struct B arg) {"])
-        assert len(self.nesting_state.stack) == 1
-        assert not isinstance(self.nesting_state.stack[0], _ClassInfo)
+        self.update_with_lines(state, ["}", "void Func(struct B arg) {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert not isinstance(nesting_state.stack[0], _ClassInfo)
 
-        self.UpdateWithLines(state, ["}"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["}"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testPreprocessor(self, state):
-        assert len(self.nesting_state.pp_stack) == 0
-        self.UpdateWithLines(state, ["#if MACRO1"])
-        assert len(self.nesting_state.pp_stack) == 1
-        self.UpdateWithLines(state, ["#endif"])
-        assert len(self.nesting_state.pp_stack) == 0
+    def test_preprocessor(self, state, nesting_state):
+        assert len(nesting_state.pp_stack) == 0
+        self.update_with_lines(state, ["#if MACRO1"], nesting_state)
+        assert len(nesting_state.pp_stack) == 1
+        self.update_with_lines(state, ["#endif"], nesting_state)
+        assert len(nesting_state.pp_stack) == 0
 
-        self.UpdateWithLines(state, ["#ifdef MACRO2"])
-        assert len(self.nesting_state.pp_stack) == 1
-        self.UpdateWithLines(state, ["#else"])
-        assert len(self.nesting_state.pp_stack) == 1
-        self.UpdateWithLines(state, ["#ifdef MACRO3"])
-        assert len(self.nesting_state.pp_stack) == 2
-        self.UpdateWithLines(state, ["#elif MACRO4"])
-        assert len(self.nesting_state.pp_stack) == 2
-        self.UpdateWithLines(state, ["#endif"])
-        assert len(self.nesting_state.pp_stack) == 1
-        self.UpdateWithLines(state, ["#endif"])
-        assert len(self.nesting_state.pp_stack) == 0
+        self.update_with_lines(state, ["#ifdef MACRO2"], nesting_state)
+        assert len(nesting_state.pp_stack) == 1
+        self.update_with_lines(state, ["#else"], nesting_state)
+        assert len(nesting_state.pp_stack) == 1
+        self.update_with_lines(state, ["#ifdef MACRO3"], nesting_state)
+        assert len(nesting_state.pp_stack) == 2
+        self.update_with_lines(state, ["#elif MACRO4"], nesting_state)
+        assert len(nesting_state.pp_stack) == 2
+        self.update_with_lines(state, ["#endif"], nesting_state)
+        assert len(nesting_state.pp_stack) == 1
+        self.update_with_lines(state, ["#endif"], nesting_state)
+        assert len(nesting_state.pp_stack) == 0
 
-        self.UpdateWithLines(
+        self.update_with_lines(
             state,
             [
                 "#ifdef MACRO5",
@@ -180,76 +181,76 @@ class TestNestingState:
                 "#else",
                 "class C {",
                 "#endif",
-            ],
+            ], nesting_state
         )
-        assert len(self.nesting_state.pp_stack) == 0
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A"
-        self.UpdateWithLines(state, ["};"])
-        assert len(self.nesting_state.stack) == 0
+        assert len(nesting_state.pp_stack) == 0
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A"
+        self.update_with_lines(state, ["};"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-        self.UpdateWithLines(state, ["class D", "#ifdef MACRO7"])
-        assert len(self.nesting_state.pp_stack) == 1
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "D"
-        assert not self.nesting_state.stack[0].is_derived
+        self.update_with_lines(state, ["class D", "#ifdef MACRO7"], nesting_state)
+        assert len(nesting_state.pp_stack) == 1
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "D"
+        assert not nesting_state.stack[0].is_derived
 
-        self.UpdateWithLines(state, ["#elif MACRO8", ": public E"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[0].name == "D"
-        assert self.nesting_state.stack[0].is_derived
-        assert not self.nesting_state.stack[0].seen_open_brace
+        self.update_with_lines(state, ["#elif MACRO8", ": public E"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[0].name == "D"
+        assert nesting_state.stack[0].is_derived
+        assert not nesting_state.stack[0].seen_open_brace
 
-        self.UpdateWithLines(state, ["#else", "{"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[0].name == "D"
-        assert not self.nesting_state.stack[0].is_derived
-        assert self.nesting_state.stack[0].seen_open_brace
+        self.update_with_lines(state, ["#else", "{"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[0].name == "D"
+        assert not nesting_state.stack[0].is_derived
+        assert nesting_state.stack[0].seen_open_brace
 
-        self.UpdateWithLines(state, ["#endif"])
-        assert len(self.nesting_state.pp_stack) == 0
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[0].name == "D"
-        assert not self.nesting_state.stack[0].is_derived
-        assert not self.nesting_state.stack[0].seen_open_brace
+        self.update_with_lines(state, ["#endif"], nesting_state)
+        assert len(nesting_state.pp_stack) == 0
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[0].name == "D"
+        assert not nesting_state.stack[0].is_derived
+        assert not nesting_state.stack[0].seen_open_brace
 
-        self.UpdateWithLines(state, [";"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, [";"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testTemplate(self, state):
-        self.UpdateWithLines(state, ["template <T,", "          class Arg1 = tmpl<T> >"])
-        assert len(self.nesting_state.stack) == 0
-        self.UpdateWithLines(state, ["class A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A"
+    def test_template(self, state, nesting_state):
+        self.update_with_lines(state, ["template <T,", "          class Arg1 = tmpl<T> >"], nesting_state)
+        assert len(nesting_state.stack) == 0
+        self.update_with_lines(state, ["class A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A"
 
-        self.UpdateWithLines(
+        self.update_with_lines(
             state,
             [
                 "};",
                 "template <T,",
                 "  template <typename, typename> class B>",
                 "class C",
-            ],
+            ], nesting_state
         )
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "C"
-        self.UpdateWithLines(state, [";"])
-        assert len(self.nesting_state.stack) == 0
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "C"
+        self.update_with_lines(state, [";"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-        self.UpdateWithLines(state, ["class D : public Tmpl<E>"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "D"
+        self.update_with_lines(state, ["class D : public Tmpl<E>"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "D"
 
-        self.UpdateWithLines(state, ["{", "};"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["{", "};"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-        self.UpdateWithLines(
+        self.update_with_lines(
             state,
             [
                 "template <class F,",
@@ -257,96 +258,99 @@ class TestNestingState:
                 "          class H,",
                 "          typename I>",
                 "static void Func() {",
-            ],
+            ], nesting_state
         )
-        assert len(self.nesting_state.stack) == 1
-        assert not isinstance(self.nesting_state.stack[0], _ClassInfo)
-        self.UpdateWithLines(state, ["}", "template <class J> class K {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "K"
+        assert len(nesting_state.stack) == 1
+        assert not isinstance(nesting_state.stack[0], _ClassInfo)
+        self.update_with_lines(state, ["}", "template <class J> class K {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "K"
 
-    def testTemplateDefaultArg(self, state):
-        self.UpdateWithLines(
+    def test_template_default_arg(self, state, nesting_state):
+        self.update_with_lines(
             state,
             ["template <class T, class D = default_delete<T>> class unique_ptr {"],
+            nesting_state
         )
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[0], isinstance(self.nesting_state.stack[0], _ClassInfo)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[0], isinstance(self.nesting_state.stack[0], _ClassInfo)
 
-    def testTemplateInnerClass(self, state):
-        self.UpdateWithLines(state, ["class A {", " public:"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
+    def test_template_inner_class(self, state, nesting_state):
+        self.update_with_lines(state, ["class A {", " public:"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
 
-        self.UpdateWithLines(
+        self.update_with_lines(
             state,
             ["  template <class B>", "  class C<alloc<B> >", "      : public A {"],
+            nesting_state
         )
-        assert len(self.nesting_state.stack) == 2
-        assert isinstance(self.nesting_state.stack[1], _ClassInfo)
+        assert len(nesting_state.stack) == 2
+        assert isinstance(nesting_state.stack[1], _ClassInfo)
 
-    def testArguments(self, state):
-        self.UpdateWithLines(state, ["class A {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "A"
-        assert self.nesting_state.stack[-1].open_parentheses == 0
+    def test_arguments(self, state, nesting_state):
+        self.update_with_lines(state, ["class A {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "A"
+        assert nesting_state.stack[-1].open_parentheses == 0
 
-        self.UpdateWithLines(state, ["  void Func(", "    struct X arg1,"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        self.UpdateWithLines(state, ["    struct X *arg2);"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 0
+        self.update_with_lines(state, ["  void Func(", "    struct X arg1,"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        self.update_with_lines(state, ["    struct X *arg2);"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 0
 
-        self.UpdateWithLines(state, ["};"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["};"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-        self.UpdateWithLines(state, ["struct B {"])
-        assert len(self.nesting_state.stack) == 1
-        assert isinstance(self.nesting_state.stack[0], _ClassInfo)
-        assert self.nesting_state.stack[0].name == "B"
+        self.update_with_lines(state, ["struct B {"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert isinstance(nesting_state.stack[0], _ClassInfo)
+        assert nesting_state.stack[0].name == "B"
 
-        self.UpdateWithLines(state, ["#ifdef MACRO", "  void Func(", "    struct X arg1"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        self.UpdateWithLines(state, ["#else"])
+        self.update_with_lines(state, ["#ifdef MACRO", "  void Func(", "    struct X arg1"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        self.update_with_lines(state, ["#else"], nesting_state)
 
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 0
-        self.UpdateWithLines(state, ["  void Func(", "    struct X arg1"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 0
+        self.update_with_lines(state, ["  void Func(", "    struct X arg1"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
 
-        self.UpdateWithLines(state, ["#endif"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        self.UpdateWithLines(state, ["    struct X *arg2);"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 0
+        self.update_with_lines(state, ["#endif"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        self.update_with_lines(state, ["    struct X *arg2);"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 0
 
-        self.UpdateWithLines(state, ["};"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["};"], nesting_state)
+        assert len(nesting_state.stack) == 0
 
-    def testInlineAssembly(self, state):
-        self.UpdateWithLines(
+    def test_inline_assembly(self, state, nesting_state):
+        self.update_with_lines(
             state,
             [
                 "void CopyRow_SSE2(const uint8* src, uint8* dst,",
                 "                  int count) {",
             ],
+            nesting_state
         )
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 0
-        assert self.nesting_state.stack[-1].inline_asm == _NO_ASM
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 0
+        assert nesting_state.stack[-1].inline_asm == _NO_ASM
 
-        self.UpdateWithLines(state, ["  asm volatile ("])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
+        self.update_with_lines(state, ["  asm volatile ("], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        assert nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
-        self.UpdateWithLines(
+        self.update_with_lines(
             state,
             [
                 '    "sub        %0,%1                         \\n"',
@@ -364,33 +368,34 @@ class TestNestingState:
                 "  :",
                 '  : "memory", "cc"',
             ],
+            nesting_state
         )
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        assert nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
-        self.UpdateWithLines(state, ["#if defined(__SSE2__)", '    , "xmm0", "xmm1"'])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
+        self.update_with_lines(state, ["#if defined(__SSE2__)", '    , "xmm0", "xmm1"'], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        assert nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
-        self.UpdateWithLines(state, ["#endif"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 1
-        assert self.nesting_state.stack[-1].inline_asm == _INSIDE_ASM
+        self.update_with_lines(state, ["#endif"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 1
+        assert nesting_state.stack[-1].inline_asm == _INSIDE_ASM
 
-        self.UpdateWithLines(state, ["  );"])
-        assert len(self.nesting_state.stack) == 1
-        assert self.nesting_state.stack[-1].open_parentheses == 0
-        assert self.nesting_state.stack[-1].inline_asm == _END_ASM
+        self.update_with_lines(state, ["  );"], nesting_state)
+        assert len(nesting_state.stack) == 1
+        assert nesting_state.stack[-1].open_parentheses == 0
+        assert nesting_state.stack[-1].inline_asm == _END_ASM
 
-        self.UpdateWithLines(state, ["__asm {"])
-        assert len(self.nesting_state.stack) == 2
-        assert self.nesting_state.stack[-1].open_parentheses == 0
-        assert self.nesting_state.stack[-1].inline_asm == _BLOCK_ASM
+        self.update_with_lines(state, ["__asm {"], nesting_state)
+        assert len(nesting_state.stack) == 2
+        assert nesting_state.stack[-1].open_parentheses == 0
+        assert nesting_state.stack[-1].inline_asm == _BLOCK_ASM
 
-        self.UpdateWithLines(state, ["}"])
-        assert len(self.nesting_state.stack) == 1
+        self.update_with_lines(state, ["}"], nesting_state)
+        assert len(nesting_state.stack) == 1
 
-        self.UpdateWithLines(state, ["}"])
-        assert len(self.nesting_state.stack) == 0
+        self.update_with_lines(state, ["}"], nesting_state)
+        assert len(nesting_state.stack) == 0

@@ -18,10 +18,10 @@ from halint.cpplint import (
     ProcessFileData,
     RemoveMultiLineComments,
 )
-from halint.function_state import _FunctionState
-from halint.include_state import _IncludeState
+from halint.function_state import FunctionState
+from halint.include_state import IncludeState
 from halint.lintstate import LintState
-from halint.nesting_state import NestingState
+from halint import NestingState
 
 from .utils.error_collector import ErrorCollector
 
@@ -41,9 +41,9 @@ class CpplintTestBase(ABC):
         error_collector = ErrorCollector()
         lines = code.split("\n")
         RemoveMultiLineComments(state, "foo.h", lines, error_collector)
-        clean_lines = CleansedLines(lines)
-        include_state = _IncludeState()
-        function_state = _FunctionState()
+        clean_lines = CleansedLines(lines, "foo.h")
+        include_state = IncludeState()
+        function_state = FunctionState()
         nesting_state = NestingState()
         ProcessLine(
             state,
@@ -63,29 +63,30 @@ class CpplintTestBase(ABC):
 
     # Perform lint over multiple lines and return the error message.
     def PerformMultiLineLint(self, state: LintState, code: str):
+        FILE_NAME = "foo.h"
         error_collector = ErrorCollector()
         lines = code.split("\n")
-        RemoveMultiLineComments(state, "foo.h", lines, error_collector)
-        lines = CleansedLines(lines)
+        RemoveMultiLineComments(state, FILE_NAME, lines, error_collector)
+        lines = CleansedLines(lines, FILE_NAME)
         nesting_state = NestingState()
-        for i in range(lines.NumLines()):
-            nesting_state.Update(state, "foo.h", lines, i, error_collector)
-            CheckStyle(state, "foo.h", lines, i, "h", nesting_state, error_collector)
-            CheckForNonStandardConstructs(state, "foo.h", lines, i, nesting_state, error_collector)
-        nesting_state.CheckCompletedBlocks(state, "foo.h", error_collector)
+        for i in range(lines.num_lines()):
+            nesting_state.update(state, lines, i, error_collector)
+            CheckStyle(state, FILE_NAME, lines, i, "h", nesting_state, error_collector)
+            CheckForNonStandardConstructs(state, FILE_NAME, lines, i, nesting_state, error_collector)
+        nesting_state.check_completed_blocks(state, FILE_NAME, error_collector)
         return error_collector.Results()
 
     # Similar to PerformMultiLineLint, but calls CheckLanguage instead of
     # CheckForNonStandardConstructs
     def PerformLanguageRulesCheck(self, state: LintState, file_name, code):
         error_collector = ErrorCollector()
-        include_state = _IncludeState()
+        include_state = IncludeState()
         nesting_state = NestingState()
         lines = code.split("\n")
         RemoveMultiLineComments(state, file_name, lines, error_collector)
-        lines = CleansedLines(lines)
+        lines = CleansedLines(lines, file_name)
         ext = file_name[file_name.rfind(".") + 1 :]
-        for i in range(lines.NumLines()):
+        for i in range(lines.num_lines()):
             CheckLanguage(
                 state,
                 file_name,
@@ -115,27 +116,27 @@ class CpplintTestBase(ABC):
         """
         file_name = "foo.cc"
         error_collector = ErrorCollector()
-        function_state = _FunctionState()
+        function_state = FunctionState()
         lines = code.split("\n")
         RemoveMultiLineComments(state, file_name, lines, error_collector)
-        lines = CleansedLines(lines)
-        for i in range(lines.NumLines()):
+        lines = CleansedLines(lines, file_name)
+        for i in range(lines.num_lines()):
             CheckForFunctionLengths(state, file_name, lines, i, function_state, error_collector)
         return error_collector.Results()
 
-    def PerformIncludeWhatYouUse(self, state: LintState, code: str, filename: str = "foo.h", io=codecs):
+    def PerformIncludeWhatYouUse(self, state: LintState, code: str, file_name: str = "foo.h", io=codecs):
         # First, build up the include state.
         error_collector = ErrorCollector()
-        include_state = _IncludeState()
+        include_state = IncludeState()
         nesting_state = NestingState()
         lines = code.split("\n")
-        RemoveMultiLineComments(state, filename, lines, error_collector)
-        lines = CleansedLines(lines)
-        file_extension = pathlib.Path(filename).suffix
-        for i in range(lines.NumLines()):
+        RemoveMultiLineComments(state, file_name, lines, error_collector)
+        lines = CleansedLines(lines, file_name)
+        file_extension = pathlib.Path(file_name).suffix
+        for i in range(lines.num_lines()):
             CheckLanguage(
                 state,
-                filename,
+                file_name,
                 lines,
                 i,
                 file_extension,
@@ -148,7 +149,7 @@ class CpplintTestBase(ABC):
         # have language problems.
 
         # Second, look for missing includes.
-        CheckForIncludeWhatYouUse(state, filename, lines, include_state, error_collector, io)
+        CheckForIncludeWhatYouUse(state, file_name, lines, include_state, error_collector, io)
         return error_collector.Results()
 
     # Perform lint and compare the error message with "expected_message".

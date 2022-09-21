@@ -1,6 +1,6 @@
 import pytest
 
-from halint.function_state import _FunctionState
+from halint.function_state import FunctionState
 from halint.lintstate import LintState
 
 from .base_case import CpplintTestBase
@@ -10,17 +10,17 @@ class TestCheckForFunctionLengths(CpplintTestBase):
     @pytest.fixture(autouse=True)
     def setUp(self):
         # Reducing these thresholds for the tests speeds up tests significantly.
-        self.old_normal_trigger = _FunctionState._NORMAL_TRIGGER
-        self.old_test_trigger = _FunctionState._TEST_TRIGGER
+        self.old_normal_trigger = FunctionState._NORMAL_TRIGGER
+        self.old_test_trigger = FunctionState._TEST_TRIGGER
 
-        _FunctionState._NORMAL_TRIGGER = 10
-        _FunctionState._TEST_TRIGGER = 25
+        FunctionState._NORMAL_TRIGGER = 10
+        FunctionState._TEST_TRIGGER = 25
 
         yield
 
         # teardown
-        _FunctionState._NORMAL_TRIGGER = self.old_normal_trigger
-        _FunctionState._TEST_TRIGGER = self.old_test_trigger
+        FunctionState._NORMAL_TRIGGER = self.old_normal_trigger
+        FunctionState._TEST_TRIGGER = self.old_test_trigger
 
     def TestFunctionLengthsCheck(self, state, code, expected_message):
         """Check warnings for long function bodies are as expected.
@@ -40,7 +40,7 @@ class TestCheckForFunctionLengths(CpplintTestBase):
         Returns:
           Number of lines needed to trigger a function length warning.
         """
-        return _FunctionState._NORMAL_TRIGGER * 2**error_level
+        return FunctionState._NORMAL_TRIGGER * 2 ** error_level
 
     def TestLines(self, error_level):
         """Return number of lines needed to trigger a test function length warning.
@@ -51,7 +51,7 @@ class TestCheckForFunctionLengths(CpplintTestBase):
         Returns:
           Number of lines needed to trigger a test function length warning.
         """
-        return _FunctionState._TEST_TRIGGER * 2**error_level
+        return FunctionState._TEST_TRIGGER * 2 ** error_level
 
     def TestFunctionLengthCheckDefinition(self, state, lines, error_level):
         """Generate long function definition and check warnings are as expected.

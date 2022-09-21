@@ -2,10 +2,7 @@ import sys
 from typing import Union
 
 import halint.cpplint as cpplint
-from halint.error import (
-    _ERROR_CATEGORIES,
-    _ShouldPrintError
-)
+from halint.error import _ERROR_CATEGORIES, _ShouldPrintError
 from halint.lintstate import LintState
 
 

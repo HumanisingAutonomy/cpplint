@@ -40,21 +40,21 @@ def ProcessLine(
       clean_lines: An array of strings, each representing a line of the file,
                    with comments stripped.
       line: Number of line being processed.
-      include_state: An _IncludeState instance in which the headers are inserted.
-      function_state: A _FunctionState instance which counts function lines, etc.
+      include_state: An IncludeState instance in which the headers are inserted.
+      function_state: A FunctionState instance which counts function lines, etc.
       nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
       error: A callable to which errors are reported, which takes 4 arguments:
-             filename, line number, error level, and message
+             file_name, line number, error level, and message
       extra_check_functions: An array of additional check functions that will be
                              run on each source line. Each function takes 4
-                             arguments: filename, clean_lines, line, error
+                             arguments: file_name, clean_lines, line, error
     """
     raw_lines = clean_lines.raw_lines
     ParseNolintSuppressions(state, filename, raw_lines[line], line, error)
-    nesting_state.Update(state, filename, clean_lines, line, error)
+    nesting_state.update(state, clean_lines, line, error)
     CheckForNamespaceIndentation(state, filename, nesting_state, clean_lines, line, error)
-    if nesting_state.InAsmBlock():
+    if nesting_state.is_asm_block():
         return
     CheckForFunctionLengths(state, filename, clean_lines, line, function_state, error)
     CheckForMultilineCommentsAndStrings(state, filename, clean_lines, line, error)
@@ -231,7 +231,7 @@ def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, fu
 
     if starting_func:
         body_found = False
-        for start_linenum in range(linenum, clean_lines.NumLines()):
+        for start_linenum in range(linenum, clean_lines.num_lines()):
             start_line = lines[start_linenum]
             joined_line += " " + start_line.lstrip()
             if Search(r"(;|})", start_line):  # Declarations and trivial functions
@@ -246,7 +246,7 @@ def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, fu
                         function += parameter_regexp.group(1)
                 else:
                     function += "()"
-                function_state.Begin(function)
+                function_state.begin(function)
                 break
         if not body_found:
             # No body for the function (or evidence of a non-function) was found.
@@ -259,10 +259,10 @@ def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, fu
                 "Lint failed to find start of function body.",
             )
     elif Match(r"^\}\s*$", line):  # function end
-        function_state.Check(state, error, filename, linenum)
-        function_state.End()
+        function_state.check(state, error, filename, linenum)
+        function_state.end()
     elif not Match(r"^\s*$", line):
-        function_state.Count()  # Count non-blank/non-comment lines.
+        function_state.count()  # Count non-blank/non-comment lines.
 
 
 def CheckForMultilineCommentsAndStrings(state, filename, clean_lines, linenum, error):
@@ -516,7 +516,7 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
       nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
       error: A callable to which errors are reported, which takes 4 arguments:
-             filename, line number, error level, and message
+             file_name, line number, error level, and message
     """
 
     # Remove comments from the line, but leave in strings for now.
@@ -625,7 +625,7 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
     # Everything else in this function operates on class declarations.
     # Return early if the top of the nesting stack is not a class, or if
     # the class head is not completed yet.
-    classinfo = nesting_state.InnermostClass()
+    classinfo = nesting_state.innermost_class()
     if not classinfo or not classinfo.seen_open_brace:
         return
 
@@ -911,7 +911,7 @@ def CheckRedundantVirtual(state, filename, clean_lines, linenum, error):
     end_col = -1
     end_line = -1
     start_col = len(virtual.group(2))
-    for start_line in range(linenum, min(linenum + 3, clean_lines.NumLines())):
+    for start_line in range(linenum, min(linenum + 3, clean_lines.num_lines())):
         line = clean_lines.elided[start_line][start_col:]
         parameter_list = Match(r"^([^(]*)\(", line)
         if parameter_list:
@@ -925,7 +925,7 @@ def CheckRedundantVirtual(state, filename, clean_lines, linenum, error):
 
     # Look for "override" or "final" after the parameter list
     # (possibly on the next few lines).
-    for i in range(end_line, min(end_line + 3, clean_lines.NumLines())):
+    for i in range(end_line, min(end_line + 3, clean_lines.num_lines())):
         line = clean_lines.elided[i][end_col:]
         match = Search(r"\b(override|final)\b", line)
         if match:

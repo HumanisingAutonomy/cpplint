@@ -11,9 +11,9 @@ class TestCleansedLines:
             'Line 5 "foo"',
         ]
 
-        clean_lines = cpplint.CleansedLines(lines)
+        clean_lines = cpplint.CleansedLines(lines, "foo.h")
         assert lines == clean_lines.raw_lines
-        assert 5 == clean_lines.NumLines()
+        assert 5 == clean_lines.num_lines()
 
         assert [
             "Line 1",
@@ -32,12 +32,12 @@ class TestCleansedLines:
         ] == clean_lines.elided
 
     def testInitEmpty(self):
-        clean_lines = cpplint.CleansedLines([])
+        clean_lines = cpplint.CleansedLines([], "foo.h")
         assert [] == clean_lines.raw_lines
-        assert 0 == clean_lines.NumLines()
+        assert 0 == clean_lines.num_lines()
 
     def testCollapseStrings(self):
-        collapse = cpplint.CleansedLines._CollapseStrings
+        collapse = cpplint.CleansedLines.collapse_strings
         assert '""' == collapse('""')  # ""     (empty)
         assert '"""' == collapse('"""')  # """    (bad)
         assert '""' == collapse('"xyz"')  # "xyz"  (string)

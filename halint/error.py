@@ -9,7 +9,7 @@ from .regex import Search
 ErrorLogger = Callable[[LintState, str, int, str, int, str], None]
 
 # Commands for sed to fix the problem
-_SED_FIXUPS = {
+_SED_FIX_UPS = {
     "Remove spaces around =": r"s/ = /=/",
     "Remove spaces around !=": r"s/ != /!=/",
     "Remove space before ( in if (": r"s/if (/if(/",
@@ -54,25 +54,6 @@ _OTHER_NOLINT_CATEGORY_PREFIXES = [
 ]
 
 
-def ProcessGlobalSuppresions(state: LintState, lines: list[str]):
-    """Updates the list of global error suppressions.
-
-    Parses any lint directives in the file that have global effect.
-
-    Args:
-      state: The current state of the linting process
-      lines: An array of strings, each representing a line of the file, with the
-             last element being empty if the file is terminated with a newline.
-    """
-    for line in lines:
-        if _SEARCH_C_FILE.search(line):
-            for category in _DEFAULT_C_SUPPRESSED_CATEGORIES:
-                state._global_error_suppressions[category] = True
-        if _SEARCH_KERNEL_FILE.search(line):
-            for category in _DEFAULT_KERNEL_SUPPRESSED_CATEGORIES:
-                state._global_error_suppressions[category] = True
-
-
 def IsErrorSuppressedByNolint(state: LintState, category: str, linenum: int):
     """Returns true if the specified error category is suppressed on this line.
 
@@ -99,7 +80,7 @@ def _ShouldPrintError(state: LintState, category, confidence, linenum):
     # There are three ways we might decide not to print an error message:
     # a "NOLINT(category)" comment appears in the source,
     # the verbosity level isn't high enough, or the filters filter it out.
-    if IsErrorSuppressedByNolint(state, category, linenum):
+    if is_error_suppressed_by_nolint(state, category, linenum):
         return False
 
     if confidence < state.verbose_level:
@@ -159,10 +140,10 @@ def ParseNolintSuppressions(state: LintState, filename, raw_line, line_num, erro
                         "readability/nolint",
                         5,
                         "Unknown NOLINT error category: %s" % category,
-                        )
+                    )
 
 
-def ProcessGlobalSuppresions(state: LintState, lines):
+def process_global_suppressions(state: LintState, lines):
     """Updates the list of global error suppressions.
 
     Parses any lint directives in the file that have global effect.
@@ -186,7 +167,7 @@ def ResetNolintSuppressions(state: LintState):
     state._global_error_suppressions.clear()
 
 
-def IsErrorSuppressedByNolint(state: LintState, category, linenum):
+def is_error_suppressed_by_nolint(state: LintState, category, linenum):
     """Returns true if the specified error category is suppressed on this line.
 
     Consults the global error_suppressions map populated by
@@ -204,6 +185,8 @@ def IsErrorSuppressedByNolint(state: LintState, category, linenum):
         or linenum in state._error_suppressions.get(category, set())
         or linenum in state._error_suppressions.get(None, set())
     )
+
+
 def Error(
     state: LintState,
     filename: str,
@@ -246,13 +229,13 @@ def Error(
         elif state.output_format == "junit":
             state.AddJUnitFailure(filename, line_num, message, category, confidence)
         elif state.output_format in ["sed", "gsed"]:
-            if message in _SED_FIXUPS:
+            if message in _SED_FIX_UPS:
                 sys.stdout.write(
                     state.output_format
                     + " -i '%s%s' %s # %s  [%s] [%d]\n"
                     % (
                         line_num,
-                        _SED_FIXUPS[message],
+                        _SED_FIX_UPS[message],
                         filename,
                         message,
                         category,

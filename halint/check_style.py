@@ -15,10 +15,8 @@ from .block_info import (
     ReverseCloseExpression,
     _IsType,
 )
-from .error import (
-    ParseNolintSuppressions
-)
-from .cleansed_lines import CleanseComments, CleansedLines
+from .error import ParseNolintSuppressions
+from .cleansed_lines import cleanse_comments, CleansedLines
 from .lintstate import LintState
 from .regex import Match, ReplaceAll, Search
 
@@ -43,7 +41,7 @@ def CheckStyle(
       filename: The name of the current file.
       clean_lines: A CleansedLines instance containing the file.
       line_num: The number of the line to check.
-      file_extension: The extension (without the dot) of the filename.
+      file_extension: The extension (without the dot) of the file_name.
       nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
       error: The function to call with any errors found.
@@ -81,7 +79,7 @@ def CheckStyle(
     # if(match(prev, " +for \\(")) complain = 0;
     # if(prevodd && match(prevprev, " +for \\(")) complain = 0;
     scope_or_label_pattern = r"\s*(?:public|private|protected|signals)(?:\s+(?:slots\s*)?)?:\s*\\?$"
-    classinfo = nesting_state.InnermostClass()
+    classinfo = nesting_state.innermost_class()
     initial_spaces = 0
     cleansed_line = clean_lines.elided[line_num]
     while initial_spaces < len(line) and line[initial_spaces] == " ":
@@ -193,7 +191,7 @@ def CheckStyle(
     CheckSpacingForFunctionCall(state, filename, clean_lines, line_num, error)
     CheckCheck(state, filename, clean_lines, line_num, error)
     CheckAltTokens(state, filename, clean_lines, line_num, error)
-    classinfo = nesting_state.InnermostClass()
+    classinfo = nesting_state.innermost_class()
     if classinfo:
         CheckSectionSpacing(state, filename, clean_lines, classinfo, line_num, error)
 
@@ -612,7 +610,7 @@ def CheckEmptyBlockBody(state, filename, clean_lines, linenum, error):
             # Now construct the body of the conditional. This consists of the portion
             # of the opening line after the {, all lines until the closing line,
             # and the portion of the closing line before the }.
-            if clean_lines.raw_lines[opening_linenum] != CleanseComments(clean_lines.raw_lines[opening_linenum]):
+            if clean_lines.raw_lines[opening_linenum] != cleanse_comments(clean_lines.raw_lines[opening_linenum]):
                 # Opening line ends with a comment, so conditional isn't empty.
                 return
             if closing_linenum > opening_linenum:
@@ -693,7 +691,7 @@ def CheckSpacing(state, filename, clean_lines, linenum, nesting_state, error):
     #
     # Also skip blank line checks for 'extern "C"' blocks, which are formatted
     # like namespaces.
-    if IsBlankLine(line) and not nesting_state.InNamespaceBody() and not nesting_state.InExternC():
+    if IsBlankLine(line) and not nesting_state.in_namespace_body() and not nesting_state.in_extern_c():
         elided = clean_lines.elided
         prev_line = elided[linenum - 1]
         prevbrace = prev_line.rfind("{")
@@ -743,7 +741,7 @@ def CheckSpacing(state, filename, clean_lines, linenum, nesting_state, error):
         #   } else if (condition2) {
         #     // Something else
         #   }
-        if linenum + 1 < clean_lines.NumLines():
+        if linenum + 1 < clean_lines.num_lines():
             next_line = raw[linenum + 1]
             if next_line and Match(r"\s*}", next_line) and next_line.find("} else ") == -1:
                 error(
@@ -768,7 +766,7 @@ def CheckSpacing(state, filename, clean_lines, linenum, nesting_state, error):
 
     # Next, check comments
     next_line_start = 0
-    if linenum + 1 < clean_lines.NumLines():
+    if linenum + 1 < clean_lines.num_lines():
         next_line = raw[linenum + 1]
         next_line_start = len(next_line) - len(next_line.lstrip())
 
@@ -1183,7 +1181,7 @@ def CheckBracesSpacing(state, filename, clean_lines, linenum, nesting_state, err
         trailing_text = ""
         if endpos > -1:
             trailing_text = endline[endpos:]
-        for offset in range(endlinenum + 1, min(endlinenum + 3, clean_lines.NumLines() - 1)):
+        for offset in range(endlinenum + 1, min(endlinenum + 3, clean_lines.num_lines() - 1)):
             trailing_text += clean_lines.elided[offset]
         # We also suppress warnings for `uint64_t{expression}` etc., as the style
         # guide recommends brace initialization for integral types to avoid

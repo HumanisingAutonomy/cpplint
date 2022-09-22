@@ -1,11 +1,11 @@
 import halint.cpplint as cpplint
 
 from .base_case import CpplintTestBase
-from .utils.error_collector import ErrorCollector
 
 
 class TestCxx11(CpplintTestBase):
-    def Helper(self, package, extension, lines, count):
+    @staticmethod
+    def helper(self, state, package, extension, lines, count):
         filename = package + "/foo." + extension
         lines = lines[:]
 
@@ -20,18 +20,17 @@ class TestCxx11(CpplintTestBase):
         lines.append("")
 
         # Process the file and check resulting error count.
-        collector = ErrorCollector(self.assert_)
-        cpplint.ProcessFileData(filename, extension, lines, collector)
-        error_list = collector.ResultList()
-        self.assertEqual(count, len(error_list), error_list)
+        cpplint.ProcessFileData(filename, extension, lines)
+        error_list = state.ResultList()
+        assert count == len(error_list), error_list
 
     def TestCxx11Feature(self, state, code, expected_error):
         lines = code.split("\n")
-        collector = ErrorCollector()
-        cpplint.RemoveMultiLineComments(state, "foo.h", lines, collector)
+        cpplint.RemoveMultiLineComments(state, "foo.h", lines)
         clean_lines = cpplint.CleansedLines(lines, "foo.h")
-        cpplint.FlagCxx11Features(state, "foo.cc", clean_lines, 0, collector)
-        assert expected_error == collector.Results()
+        cpplint.FlagCxx11Features(state, clean_lines, 0)
+        assert expected_error == state.Results()
+        state.ResetErrorCounts()
 
     def testBlockedHeaders(self, state):
         self.TestCxx11Feature(

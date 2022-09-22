@@ -6,7 +6,6 @@ import sysconfig
 import unicodedata
 
 from .cleansed_lines import CleansedLines
-from .error import ErrorLogger
 from .file_info import FileInfo, path_split_to_list
 from .include_state import IncludeState
 from .lintstate import LintState
@@ -61,7 +60,7 @@ class BlockInfo(object):
         self.inline_asm = _NO_ASM
         self.check_namespace_indentation = False
 
-    def check_begin(self, clean_lines, line_num, error):
+    def check_begin(self, clean_lines, line_num):
         """Run checks that applies to text up to the opening brace.
 
         This is mostly for checking the text after the class identifier
@@ -75,7 +74,7 @@ class BlockInfo(object):
         """
         pass
 
-    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int, error: ErrorLogger):
+    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int):
         """Run checks that applies to text after the closing brace.
 
         This is mostly used for checking end of namespace comments.
@@ -140,12 +139,12 @@ class _ClassInfo(BlockInfo):
                 self.last_line = i
                 break
 
-    def check_begin(self, clean_lines, line_num, error):
+    def check_begin(self, clean_lines, line_num):
         # Look for a bare ':'
         if Search("(^|[^:]):($|[^:])", clean_lines.elided[line_num]):
             self.is_derived = True
 
-    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int, error: ErrorLogger):
+    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int):
         # If there is a DISALLOW macro, it should appear near the end of
         # the class.
         seen_last_thing_in_class = False
@@ -156,8 +155,7 @@ class _ClassInfo(BlockInfo):
             )
             if match:
                 if seen_last_thing_in_class:
-                    error(
-                        state,
+                    state.log_error(
                         clean_lines.file_name,
                         i,
                         "readability/constructors",
@@ -178,8 +176,7 @@ class _ClassInfo(BlockInfo):
                 parent = "struct " + self.name
             else:
                 parent = "class " + self.name
-            error(
-                state,
+            state.log_error(
                 clean_lines.file_name,
                 line_num,
                 "whitespace/indent",
@@ -196,7 +193,7 @@ class _NamespaceInfo(BlockInfo):
         self.name = name or ""
         self.check_namespace_indentation = True
 
-    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int, error: ErrorLogger):
+    def CheckEnd(self, state: LintState, clean_lines: CleansedLines, line_num: int):
         """Check end of namespace comments."""
         line = clean_lines.raw_lines[line_num]
 
@@ -232,8 +229,7 @@ class _NamespaceInfo(BlockInfo):
                 (r"^\s*};*\s*(//|/\*).*\bnamespace\s+" + re.escape(self.name) + r"[\*/\.\\\s]*$"),
                 line,
             ):
-                error(
-                    state,
+                state.log_error(
                     clean_lines.file_name,
                     line_num,
                     "readability/namespace",
@@ -246,8 +242,7 @@ class _NamespaceInfo(BlockInfo):
                 # If "// namespace anonymous" or "// anonymous namespace (more text)",
                 # mention "// anonymous namespace" as an acceptable form
                 if Match(r"^\s*}.*\b(namespace anonymous|anonymous namespace)\b", line):
-                    error(
-                        state,
+                    state.log_error(
                         clean_lines.file_name,
                         line_num,
                         "readability/namespace",
@@ -255,8 +250,7 @@ class _NamespaceInfo(BlockInfo):
                         'Anonymous namespace should be terminated with "// namespace"' ' or "// anonymous namespace"',
                     )
                 else:
-                    error(
-                        state,
+                    state.log_error(
                         clean_lines.file_name,
                         line_num,
                         "readability/namespace",

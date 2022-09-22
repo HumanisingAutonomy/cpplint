@@ -8,7 +8,6 @@ from typing import Optional
 
 from .categories import _ERROR_CATEGORIES
 from .cpplint import ProcessFileData
-from .error import Error
 from .lintstate import LintState
 
 _USAGE = """
@@ -226,7 +225,7 @@ def process_hpp_headers_option(state, val):
     try:
         state._hpp_headers = {ext.strip() for ext in val.split(",")}
     except ValueError:
-        print_usage("Header extensions must be comma separated list.")
+        print_usage(state, "Header extensions must be comma separated list.")
 
 
 def process_include_order_option(state, val):
@@ -235,7 +234,7 @@ def process_include_order_option(state, val):
     elif val == "standardcfirst":
         state._include_order = val
     else:
-        print_usage("Invalid includeorder value %s. Expected default|standardcfirst")
+        print_usage(state, "Invalid includeorder value %s. Expected default|standardcfirst")
 
 
 def process_extensions_option(state: LintState, val):
@@ -244,6 +243,7 @@ def process_extensions_option(state: LintState, val):
         state._valid_extensions = set(extensions)
     except ValueError:
         print_usage(
+            state,
             "Extensions should be a comma-separated list of values;"
             "for example: extensions=hpp,cpp\n"
             'This could not be parsed: "%s"' % (val,)
@@ -254,7 +254,8 @@ def print_usage(state: LintState, message: Optional[str] = None):
     """Prints a brief usage string and exits, optionally with an error message.
 
     Args:
-      message: The optional error message.
+        state: The current state of the linting process.
+        message: The optional error message.
     """
     sys.stderr.write(
         _USAGE
@@ -293,13 +294,13 @@ def parse_filters(filter_string: str) -> list[str]:
     """Takes a comma separated list of filters and returns a list of filters"""
     filters = []
 
-    for filter in filter_string.split(","):
-        clean_filter = filter.strip()
+    for filt in filter_string.split(","):
+        clean_filter = filt.strip()
         if clean_filter:
             filters.append(clean_filter)
-    for filter in filters:
-        if not (filter.startswith("+") or filter.startswith("-")):
-            raise ValueError("Every filter in --filters must start with + or -" " (%s does not)" % filter)
+    for filt in filters:
+        if not (filt.startswith("+") or filt.startswith("-")):
+            raise ValueError("Every filter in --filters must start with + or -" " (%s does not)" % filt)
     return filters
 
 
@@ -325,13 +326,14 @@ def _is_parent_or_same(parent, child):
 def parse_arguments(state: LintState, args):
     """Parses the command line arguments.
 
-    This may set the output format and verbosity level as side-effects.
+    This may set the output format and verbosity level as side effects.
 
     Args:
-      args: The command line arguments:
+        state: The current state of the linting process.
+        args: The command line arguments:
 
     Returns:
-      The list of filenames to lint.
+        The list of filenames to lint.
     """
     try:
         (opts, filenames) = getopt.getopt(
@@ -481,21 +483,22 @@ def _filter_excluded_files(state, fnames):
     return [f for f in fnames if not any(e for e in exclude_paths if _is_parent_or_same(e, os.path.abspath(f)))]
 
 
-def process_file(state: LintState, filename, vlevel, extra_check_functions=None):
+def process_file(state: LintState, filename, verbose_level, extra_check_functions=None):
     """Does google-lint on a single file.
 
     Args:
-      filename: The name of the file to parse.
+        state: The current state of the linting process.
+        filename: The name of the file to parse.
 
-      vlevel: The level of errors to report.  Every error of confidence
-      >= verbose_level will be reported.  0 is a good default.
+        verbose_level: The level of errors to report.  Every error of confidence
+        >= verbose_level will be reported.  0 is a good default.
 
-      extra_check_functions: An array of additional check functions that will be
-                             run on each source line. Each function takes 4
-                             arguments: file_name, clean_lines, line, error
+        extra_check_functions: An array of additional check functions that will be
+                               run on each source line. Each function takes 4
+                               arguments: file_name, clean_lines, line, error
     """
 
-    state.verbose_level = vlevel
+    state.verbose_level = verbose_level
     state.backup_filters()
     old_errors = state.error_count
 
@@ -530,12 +533,12 @@ def process_file(state: LintState, filename, vlevel, extra_check_functions=None)
 
         # Remove trailing '\r'.
         # The -1 accounts for the extra trailing blank line we get from split()
-        for linenum in range(len(lines) - 1):
-            if lines[linenum].endswith("\r"):
-                lines[linenum] = lines[linenum].rstrip("\r")
-                crlf_lines.append(linenum + 1)
+        for line_num in range(len(lines) - 1):
+            if lines[line_num].endswith("\r"):
+                lines[line_num] = lines[line_num].rstrip("\r")
+                crlf_lines.append(line_num + 1)
             else:
-                lf_lines.append(linenum + 1)
+                lf_lines.append(line_num + 1)
 
     except IOError:
         state.PrintError("Skipping input '%s': Can't open for reading\n" % filename)
@@ -552,7 +555,7 @@ def process_file(state: LintState, filename, vlevel, extra_check_functions=None)
             "Ignoring %s; not a valid file name " "(%s)\n" % (filename, ", ".join(state.GetAllExtensions()))
         )
     else:
-        ProcessFileData(state, filename, file_extension, lines, Error, extra_check_functions)
+        ProcessFileData(state, filename, file_extension, lines, extra_check_functions)
 
         # If end-of-line sequences are a mix of LF and CR-LF, issue
         # warnings on the lines with CR.
@@ -568,11 +571,11 @@ def process_file(state: LintState, filename, vlevel, extra_check_functions=None)
             # Warn on every line with CR.  An alternative approach might be to
             # check whether the file is mostly CRLF or just LF, and warn on the
             # minority, we bias toward LF here since most tools prefer LF.
-            for linenum in crlf_lines:
+            for line_num in crlf_lines:
                 Error(
                     state,
                     filename,
-                    linenum,
+                    line_num,
                     "whitespace/newline",
                     1,
                     "Unexpected \\r (^M) found; better to use only \\n",
@@ -585,14 +588,15 @@ def process_file(state: LintState, filename, vlevel, extra_check_functions=None)
     state.restore_filters()
 
 
-def ProcessConfigOverrides(state, filename):
+def ProcessConfigOverrides(state: LintState, filename: str):
     """Loads the configuration files and processes the config overrides.
 
     Args:
-      filename: The name of the file being processed by the linter.
+        state: The current state of the linting process.
+        filename: The name of the file being processed by the linter.
 
     Returns:
-      False if the current |file_name| should not be processed further.
+        False if the current |file_name| should not be processed further.
     """
 
     abs_filename = os.path.abspath(filename)

@@ -60,11 +60,15 @@ from .block_info import (
 )
 from .check_line import ProcessLine
 from .cleansed_lines import _RE_PATTERN_INCLUDE, cleanse_comments, CleansedLines
-from .error import ErrorLogger, ParseNolintSuppressions, process_global_suppressions, ResetNolintSuppressions
 from .file_info import FileInfo, is_extension
 from .function_state import FunctionState
 from .include_state import IncludeState
-from .lintstate import LintState
+from .lintstate import (
+    LintState,
+    ParseNolintSuppressions,
+    process_global_suppressions,
+    ResetNolintSuppressions
+)
 from ._nesting_state import NestingState
 from .regex import Match, Search
 
@@ -77,7 +81,7 @@ def RemoveMultiLineCommentsFromRange(lines, begin, end):
         lines[i] = "/**/"
 
 
-def RemoveMultiLineComments(state, filename, lines, error):
+def RemoveMultiLineComments(state: LintState, filename: str, lines: list[str]):
     """Removes multiline (c-style) comments from lines."""
     line_index = 0
     while line_index < len(lines):
@@ -86,8 +90,7 @@ def RemoveMultiLineComments(state, filename, lines, error):
             return
         line_index_end = FindNextMultiLineCommentEnd(lines, line_index_begin)
         if line_index_end >= len(lines):
-            error(
-                state,
+            state.log_error(
                 filename,
                 line_index_begin + 1,
                 "readability/multiline_comment",
@@ -99,7 +102,7 @@ def RemoveMultiLineComments(state, filename, lines, error):
         line_index = line_index_end + 1
 
 
-def CheckForCopyright(state, filename, lines, error):
+def CheckForCopyright(state, filename, lines):
     """Logs an error if no Copyright message appears at the top of the file."""
 
     # We'll say it should occur by line 10. Don't forget there's a
@@ -108,8 +111,7 @@ def CheckForCopyright(state, filename, lines, error):
         if re.search(r"Copyright", lines[line], re.I):
             break
     else:  # means no copyright line was found
-        error(
-            state,
+        state.log_error(
             filename,
             0,
             "legal/copyright",
@@ -138,7 +140,6 @@ def CheckForHeaderGuard(
     state: LintState,
     filename: str,
     clean_lines: CleansedLines,
-    error: Callable[[LintState, str, int, str, int, str], None],
 ):
     """Checks that the file contains a header guard.
 
@@ -190,8 +191,7 @@ def CheckForHeaderGuard(
             endif_linenum = linenum
 
     if not ifndef or not define or ifndef != define:
-        error(
-            state,
+        state.log_error(
             filename,
             0,
             "build/header_guard",
@@ -207,9 +207,8 @@ def CheckForHeaderGuard(
         if ifndef != cppvar + "_":
             error_level = 5
 
-        ParseNolintSuppressions(state, filename, raw_lines[ifndef_linenum], ifndef_linenum, error)
-        error(
-            state,
+        ParseNolintSuppressions(state, filename, raw_lines[ifndef_linenum], ifndef_linenum)
+        state.log_error(
             filename,
             ifndef_linenum,
             "build/header_guard",
@@ -218,13 +217,12 @@ def CheckForHeaderGuard(
         )
 
     # Check for "//" comments on endif line.
-    ParseNolintSuppressions(state, filename, raw_lines[endif_linenum], endif_linenum, error)
+    ParseNolintSuppressions(state, filename, raw_lines[endif_linenum], endif_linenum)
     match = Match(r"#endif\s*//\s*" + cppvar + r"(_)?\b", endif)
     if match:
         if match.group(1) == "_":
             # Issue low severity warning for deprecated double trailing underscore
-            error(
-                state,
+            state.log_error(
                 filename,
                 endif_linenum,
                 "build/header_guard",
@@ -248,8 +246,7 @@ def CheckForHeaderGuard(
         if match:
             if match.group(1) == "_":
                 # Low severity warning for double trailing underscore
-                error(
-                    state,
+                state.log_error(
                     filename,
                     endif_linenum,
                     "build/header_guard",
@@ -259,8 +256,7 @@ def CheckForHeaderGuard(
             return
 
     # Didn't find anything
-    error(
-        state,
+    state.log_error(
         filename,
         endif_linenum,
         "build/header_guard",
@@ -269,16 +265,14 @@ def CheckForHeaderGuard(
     )
 
 
-def CheckHeaderFileIncluded(state: LintState, filename: int, include_state: IncludeState, error: ErrorLogger):
-    """Logs an error if a source file does not include its header."""
-
+def CheckHeaderFileIncluded(state: LintState, file_name: str, include_state: IncludeState):
     # Do not check test files
-    fileinfo = FileInfo(filename)
+    fileinfo = FileInfo(file_name)
     if Search(_TEST_FILE_SUFFIX, fileinfo.base_name()):
         return
 
     for ext in state.GetHeaderExtensions():
-        basefilename = filename[0 : len(filename) - len(fileinfo.extension())]
+        basefilename = file_name[0: len(file_name) - len(fileinfo.extension())]
         headerfile = basefilename + "." + ext
         if not os.path.exists(headerfile):
             continue
@@ -302,10 +296,10 @@ def CheckHeaderFileIncluded(state: LintState, filename: int, include_state: Incl
         if include_uses_unix_dir_aliases:
             message += ". Relative paths like . and .. are not allowed."
 
-        error(state, filename, first_include, "build/include", 5, message)
+        state.log_error(file_name, first_include, "build/include", 5, message)
 
 
-def CheckForBadCharacters(state, filename, lines, error):
+def CheckForBadCharacters(state, filename, lines):
     """Logs an error for each line containing bad characters.
 
     Two kinds of bad characters:
@@ -320,12 +314,10 @@ def CheckForBadCharacters(state, filename, lines, error):
     Args:
       filename: The name of the current file.
       lines: An array of strings, each representing a line of the file.
-      error: The function to call with any errors found.
     """
     for linenum, line in enumerate(lines):
         if "\ufffd" in line:
-            error(
-                state,
+            state.log_error(
                 filename,
                 linenum,
                 "readability/utf8",
@@ -333,8 +325,7 @@ def CheckForBadCharacters(state, filename, lines, error):
                 "Line contains invalid UTF-8 (or Unicode replacement character).",
             )
         if "\0" in line:
-            error(
-                state,
+            state.log_error(
                 filename,
                 linenum,
                 "readability/nul",
@@ -343,13 +334,13 @@ def CheckForBadCharacters(state, filename, lines, error):
             )
 
 
-def CheckForNewlineAtEOF(state, filename, lines, error):
+def CheckForNewlineAtEOF(state, filename, lines):
     """Logs an error if there is no newline char at the end of the file.
 
     Args:
+      state: the current state of the linting process
       filename: The name of the current file.
       lines: An array of strings, each representing a line of the file.
-      error: The function to call with any errors found.
     """
 
     # The array lines() was created by adding two newlines to the
@@ -357,8 +348,7 @@ def CheckForNewlineAtEOF(state, filename, lines, error):
     # To verify that the file ends in \n, we just have to make sure the
     # last-but-two element of lines() exists and is empty.
     if len(lines) < 3 or lines[-2]:
-        error(
-            state,
+        state.log_error(
             filename,
             len(lines) - 2,
             "whitespace/ending_newline",
@@ -626,10 +616,8 @@ def UpdateIncludeState(filename, include_dict, io=codecs):
 
 def CheckForIncludeWhatYouUse(
     state: LintState,
-    filename: str,
     clean_lines: CleansedLines,
     include_state: IncludeState,
-    error: ErrorLogger,
     io=codecs,
 ):
     """Reports for missing stl includes.
@@ -641,18 +629,18 @@ def CheckForIncludeWhatYouUse(
     reported as a reason to include the <functional>.
 
     Args:
-      filename: The name of the current file.
+      state: The current state of the linting process
       clean_lines: A CleansedLines instance containing the file.
       include_state: An IncludeState instance.
-      error: The function to call with any errors found.
       io: The IO factory to use to read the header file. Provided for unittest
           injection.
     """
+    filename = clean_lines.file_name
     required = {}  # A map of header name to linenumber and the template entity.
     # Example of required: { '<functional>': (1219, 'less<>') }
 
-    for linenum in range(clean_lines.num_lines()):
-        line = clean_lines.elided[linenum]
+    for line_num in range(clean_lines.num_lines()):
+        line = clean_lines.elided[line_num]
         if not line or line[0] == "#":
             continue
 
@@ -663,11 +651,11 @@ def CheckForIncludeWhatYouUse(
             # (We check only the first match per line; good enough.)
             prefix = line[: matched.start()]
             if prefix.endswith("std::") or not prefix.endswith("::"):
-                required["<string>"] = (linenum, "string")
+                required["<string>"] = (line_num, "string")
 
         for pattern, template, header in _re_pattern_headers_maybe_templates:
             if pattern.search(line):
-                required[header] = (linenum, template)
+                required[header] = (line_num, template)
 
         # The following function is just a speed up, no semantics are changed.
         if "<" not in line:  # Reduces the cpu time usage by skipping lines.
@@ -680,7 +668,7 @@ def CheckForIncludeWhatYouUse(
                 # (We check only the first match per line; good enough.)
                 prefix = line[: matched.start()]
                 if prefix.endswith("std::") or not prefix.endswith("::"):
-                    required[header] = (linenum, template)
+                    required[header] = (line_num, template)
 
     # The policy is that if you #include something in foo.h you don't need to
     # include it again in foo.cc. Here, we will look at possible includes.
@@ -725,8 +713,7 @@ def CheckForIncludeWhatYouUse(
     for required_header_unstripped in sorted(required, key=required.__getitem__):
         template = required[required_header_unstripped][1]
         if required_header_unstripped.strip('<>"') not in include_dict:
-            error(
-                state,
+            state.log_error(
                 filename,
                 required[required_header_unstripped][0],
                 "build/include_what_you_use",
@@ -739,25 +726,24 @@ def CheckForIncludeWhatYouUse(
 # inside of a namespace.
 
 
-def FlagCxx11Features(state, filename, clean_lines, linenum, error):
+def FlagCxx11Features(state, clean_lines, line_num):
     """Flag those c++11 features that we only allow in certain places.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
+    file_name = clean_lines.file_name
 
     include = Match(r'\s*#\s*include\s+[<"]([^<"]+)[">]', line)
 
     # Flag unapproved C++ TR1 headers.
     if include and include.group(1).startswith("tr1/"):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/c++tr1",
             5,
             ("C++ TR1 headers such as <%s> are unapproved.") % include.group(1),
@@ -776,10 +762,9 @@ def FlagCxx11Features(state, filename, clean_lines, linenum, error):
         "regex",
         "system_error",
     ):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/c++11",
             5,
             ("<%s> is an unapproved C++11 header.") % include.group(1),
@@ -799,10 +784,9 @@ def FlagCxx11Features(state, filename, clean_lines, linenum, error):
         "aligned_union",
     ):
         if Search(r"\bstd::%s\b" % top_name, line):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                file_name,
+                line_num,
                 "build/c++11",
                 5,
                 (
@@ -816,29 +800,25 @@ def FlagCxx11Features(state, filename, clean_lines, linenum, error):
 
 def FlagCxx14Features(
     state: LintState,
-    filename: str,
     clean_lines: CleansedLines,
-    linenum: int,
-    error: ErrorLogger,
+    line_num: int,
 ):
     """Flag those C++14 features that we restrict.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
 
     include = Match(r'\s*#\s*include\s+[<"]([^<"]+)[">]', line)
 
     # Flag unapproved C++14 headers.
     if include and include.group(1) in ("scoped_allocator", "shared_mutex"):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "build/c++14",
             5,
             ("<%s> is an unapproved C++14 header.") % include.group(1),
@@ -850,7 +830,6 @@ def ProcessFileData(
     filename: str,
     file_extension: str,
     lines: list[str],
-    error: ErrorLogger,
     extra_check_functions=None,
 ) -> None:
     """Performs lint checks and reports any errors to the given error function.
@@ -861,8 +840,6 @@ def ProcessFileData(
       file_extension: The extension (dot not included) of the file.
       lines: An array of strings, each representing a line of the file, with the
              last element being empty if the file is terminated with a newline.
-      error: A callable to which errors are reported, which takes 4 arguments:
-             file_name, line number, error level, and message
       extra_check_functions: An array of additional check functions that will be
                              run on each source line. Each function takes 4
                              arguments: file_name, clean_lines, line, error
@@ -879,38 +856,36 @@ def ProcessFileData(
 
     ResetNolintSuppressions(state)
 
-    CheckForCopyright(state, filename, lines, error)
+    CheckForCopyright(state, filename, lines)
     process_global_suppressions(state, lines)
-    RemoveMultiLineComments(state, filename, lines, error)
+    RemoveMultiLineComments(state, filename, lines)
     clean_lines = CleansedLines(lines, filename)
 
     if state.IsHeaderExtension(file_extension):
-        CheckForHeaderGuard(state, filename, clean_lines, error)
+        CheckForHeaderGuard(state, filename, clean_lines)
 
     for line in range(clean_lines.num_lines()):
         ProcessLine(
             state,
-            filename,
             file_extension,
             clean_lines,
             line,
             include_state,
             function_state,
             nesting_state,
-            error,
             extra_check_functions,
         )
-        FlagCxx11Features(state, filename, clean_lines, line, error)
-    nesting_state.check_completed_blocks(state, filename, error)
+        FlagCxx11Features(state, clean_lines, line)
+    nesting_state.check_completed_blocks(state, filename)
 
-    CheckForIncludeWhatYouUse(state, filename, clean_lines, include_state, error)
+    CheckForIncludeWhatYouUse(state, clean_lines, include_state)
 
     # Check that the .cc file has included its header if it exists.
     if is_extension(file_extension, state.GetNonHeaderExtensions()):
-        CheckHeaderFileIncluded(state, filename, include_state, error)
+        CheckHeaderFileIncluded(state, filename, include_state)
 
     # We check here rather than inside ProcessLine so that we see raw
     # lines rather than "cleaned" lines.
-    CheckForBadCharacters(state, filename, lines, error)
+    CheckForBadCharacters(state, filename, lines)
 
-    CheckForNewlineAtEOF(state, filename, lines, error)
+    CheckForNewlineAtEOF(state, filename, lines)

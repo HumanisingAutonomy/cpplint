@@ -18,13 +18,11 @@ from .regex import Match, Search
 
 def CheckLanguage(
     state: LintState,
-    filename: str,
     clean_lines: CleansedLines,
-    linenum: int,
+    line_num: int,
     file_extension: str,
     include_state: IncludeState,
     nesting_state: NestingState,
-    error: Callable[[str, int, str, int, str], None],
 ):
     """Checks rules from the 'C++ language rules' section of cppguide.html.
 
@@ -32,27 +30,26 @@ def CheckLanguage(
     uint32 inappropriately), but we do the best we can.
 
     Args:
-      filename: The name of the current file.
+      state: The current state of the linting process.
       clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
+      line_num: The number of the line to check.
       file_extension: The extension (without the dot) of the file_name.
       include_state: An IncludeState instance in which the headers are inserted.
       nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
-      error: The function to call with any errors found.
     """
 
     # TODO: This should just be a list of checks
 
     # If the line is empty or consists of entirely a comment, no need to
     # check it.
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     if not line:
         return
 
     match = _RE_PATTERN_INCLUDE.search(line)
     if match:
-        CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error)
+        CheckIncludeLine(state, clean_lines, line_num, include_state)
         return
 
     # Reset include state across preprocessor directives.  This is meant
@@ -62,9 +59,9 @@ def CheckLanguage(
         include_state.reset_section(match.group(1))
 
     # Perform other checks now that we are sure that this is not an include line
-    CheckCasts(state, filename, clean_lines, linenum, error)
-    CheckGlobalStatic(state, filename, clean_lines, linenum, error)
-    CheckPrintf(state, filename, clean_lines, linenum, error)
+    CheckCasts(state, clean_lines, line_num)
+    CheckGlobalStatic(state, clean_lines, line_num)
+    CheckPrintf(state, clean_lines, line_num)
 
     if state.IsHeaderExtension(file_extension):
         # TODO(unknown): check that 1-arg constructors are explicit.
@@ -78,10 +75,9 @@ def CheckLanguage(
     # we regularly allow is "unsigned short port" for port.
     if Search(r"\bshort port\b", line):
         if not Search(r"\bunsigned short port\b", line):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/int",
                 4,
                 'Use "unsigned short" for ports, not "short"',
@@ -89,10 +85,9 @@ def CheckLanguage(
     else:
         match = Search(r"\b(short|long(?! +double)|long long)\b", line)
         if match:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/int",
                 4,
                 "Use int16/int64/etc, rather than the C type %s" % match.group(1),
@@ -105,10 +100,9 @@ def CheckLanguage(
     # The trick is it's hard to tell apart from binary operator&:
     #   class Y { int operator&(const Y& x) { return 23; } }; // binary operator&
     if Search(r"\boperator\s*&\s*\(\s*\)", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/operator",
             4,
             "Unary operator& is dangerous.  Do not use it.",
@@ -117,10 +111,9 @@ def CheckLanguage(
     # Check for suspicious usage of "if" like
     # } if (a == b) {
     if Search(r"\}\s*if\s*\(", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "readability/braces",
             4,
             'Did you mean "else if"? If not, start a new line for "if".',
@@ -138,10 +131,9 @@ def CheckLanguage(
         match = Match(r"([\w.\->()]+)$", printf_args)
         if match and match.group(1) != "__VA_ARGS__":
             function_name = re.search(r"\b((?:string)?printf)\s*\(", line, re.I).group(1)
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/printf",
                 4,
                 'Potential format string bug. Do %s("%%s", %s) instead.' % (function_name, match.group(1)),
@@ -150,10 +142,9 @@ def CheckLanguage(
     # Check for potential memset bugs like memset(buf, sizeof(buf), 0).
     match = Search(r"memset\s*\(([^,]*),\s*([^,]*),\s*0\s*\)", line)
     if match and not Match(r"^''|-?[0-9]+|0x[0-9A-Fa-f]$", match.group(2)):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/memset",
             4,
             'Did you mean "memset(%s, 0, %s)"?' % (match.group(1), match.group(2)),
@@ -161,19 +152,17 @@ def CheckLanguage(
 
     if Search(r"\busing namespace\b", line):
         if Search(r"\bliterals\b", line):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "build/namespaces_literals",
                 5,
                 "Do not use namespace using-directives.  " "Use using-declarations instead.",
             )
         else:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "build/namespaces",
                 5,
                 "Do not use namespace using-directives.  " "Use using-declarations instead.",
@@ -221,10 +210,9 @@ def CheckLanguage(
             is_const = False
             break
         if not is_const:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/arrays",
                 1,
                 "Do not use variable-length arrays.  Use an appropriately named "
@@ -235,10 +223,9 @@ def CheckLanguage(
     # macros are typically OK, so we allow use of "namespace {" on lines
     # that end with backslashes.
     if state.IsHeaderExtension(file_extension) and Search(r"\bnamespace\s*{", line) and line[-1] != "\\":
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "build/namespaces_headers",
             4,
             "Do not use unnamed namespaces in header files.  See "
@@ -247,7 +234,7 @@ def CheckLanguage(
         )
 
 
-def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error):
+def CheckIncludeLine(state, clean_lines, linenum, include_state):
     """Check rules that are applicable to #include lines.
 
     Strings on #include lines are NOT removed from elided line, to make
@@ -255,13 +242,12 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
     applicable to #include lines in CheckLanguage must be put here.
 
     Args:
-      filename: The name of the current file.
+      state: the current state of the linting process.
       clean_lines: A CleansedLines instance containing the file.
       linenum: The number of the line to check.
       include_state: An IncludeState instance in which the headers are inserted.
-      error: The function to call with any errors found.
     """
-    fileinfo = FileInfo(filename)
+    fileinfo = FileInfo(clean_lines.file_name)
     line = clean_lines.lines[linenum]
 
     # These headers are excluded from [build/include] and [build/include_order]
@@ -280,9 +266,8 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
     match = Match(r'#include\s*"([^/]+\.(.*))"', line)
     if match:
         if state.IsHeaderExtension(match.group(2)) and not _THIRD_PARTY_HEADERS_PATTERN.match(match.group(1)):
-            error(
-                state,
-                filename,
+            state.log_error(
+                clean_lines.file_name,
                 linenum,
                 "build/include_subdir",
                 4,
@@ -298,13 +283,12 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
         used_angle_brackets = match.group(1) == "<"
         duplicate_line = include_state.find_header(include)
         if duplicate_line >= 0:
-            error(
-                state,
-                filename,
+            state.log_error(
+                clean_lines.file_name,
                 linenum,
                 "build/include",
                 4,
-                '"%s" already included at %s:%s' % (include, filename, duplicate_line),
+                '"%s" already included at %s:%s' % (include, clean_lines.file_name, duplicate_line),
             )
             return
 
@@ -312,9 +296,8 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
             if include.endswith("." + extension) and os.path.dirname(
                 fileinfo.repository_name(state._repository)
             ) != os.path.dirname(include):
-                error(
-                    state,
-                    filename,
+                state.log_error(
+                    clean_lines.file_name,
                     linenum,
                     "build/include",
                     4,
@@ -326,6 +309,7 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
         # file_name. Otherwise we get an erroneous error "...should include its
         # header" error later.
         third_src_header = False
+        filename = clean_lines.file_name
         for ext in state.GetHeaderExtensions():
             basefilename = filename[0 : len(filename) - len(fileinfo.extension())]
             headerfile = basefilename + "." + ext
@@ -352,9 +336,8 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
                 _ClassifyInclude(state, fileinfo, include, used_angle_brackets, state._include_order)
             )
             if error_message:
-                error(
-                    state,
-                    filename,
+                state.log_error(
+                    clean_lines.file_name,
                     linenum,
                     "build/include_order",
                     4,
@@ -362,9 +345,8 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
                 )
             canonical_include = include_state.canonicalize_alphabetical_order(include)
             if not include_state.is_in_alphabetical_order(clean_lines, linenum, canonical_include):
-                error(
-                    state,
-                    filename,
+                state.log_error(
+                    clean_lines.file_name,
                     linenum,
                     "build/include_alpha",
                     4,
@@ -373,16 +355,15 @@ def CheckIncludeLine(state, filename, clean_lines, linenum, include_state, error
             include_state.set_last_header(canonical_include)
 
 
-def CheckCasts(state, filename, clean_lines, linenum, error):
+def CheckCasts(state, clean_lines, line_num):
     """Various cast related checks.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: the state of the curren linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
 
     # Check to see if they're using an conversion function cast.
     # I just try to capture the most common basic types, though there are more.
@@ -394,7 +375,7 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
         r"(\([^)].*)",
         line,
     )
-    expecting_function = ExpectingFunctionArgs(clean_lines, linenum)
+    expecting_function = ExpectingFunctionArgs(clean_lines, line_num)
     if match and not expecting_function:
         matched_type = match.group(2)
 
@@ -435,10 +416,9 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
             and not Match(r"\s*using\s+\S+\s*=\s*" + matched_type, line)
             and not Search(r"new\(\S+\)\s*" + matched_type, line)
         ):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "readability/casting",
                 4,
                 "Using deprecated casting style.  " "Use static_cast<%s>(...) instead" % matched_type,
@@ -447,12 +427,10 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
     if not expecting_function:
         CheckCStyleCast(
             state,
-            filename,
             clean_lines,
-            linenum,
+            line_num,
             "static_cast",
             r"\((int|float|double|bool|char|u?int(16|32|64)|size_t)\)",
-            error,
         )
 
     # This doesn't catch all cases. Consider (const char * const)"hello".
@@ -461,24 +439,20 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
     # compile).
     if CheckCStyleCast(
         state,
-        filename,
         clean_lines,
-        linenum,
+        line_num,
         "const_cast",
         r'\((char\s?\*+\s?)\)\s*"',
-        error,
     ):
         pass
     else:
         # Check pointer casts for other than string constants
         CheckCStyleCast(
             state,
-            filename,
             clean_lines,
-            linenum,
+            line_num,
             "reinterpret_cast",
             r"\((\w+\s?\*+\s?)\)",
-            error,
         )
 
     # In addition, we look for people taking the address of a cast.  This
@@ -503,7 +477,7 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
         parenthesis_error = False
         match = Match(r"^(.*&(?:static|dynamic|down|reinterpret)_cast\b)<", line)
         if match:
-            _, y1, x1 = CloseExpression(clean_lines, linenum, len(match.group(1)))
+            _, y1, x1 = CloseExpression(clean_lines, line_num, len(match.group(1)))
             if x1 >= 0 and clean_lines.elided[y1][x1] == "(":
                 _, y2, x2 = CloseExpression(clean_lines, y1, x1)
                 if x2 >= 0:
@@ -514,10 +488,9 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
                         parenthesis_error = True
 
         if parenthesis_error:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "readability/casting",
                 4,
                 (
@@ -527,10 +500,9 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
                 ),
             )
         else:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/casting",
                 4,
                 (
@@ -541,23 +513,22 @@ def CheckCasts(state, filename, clean_lines, linenum, error):
             )
 
 
-def CheckCStyleCast(state, filename, clean_lines, linenum, cast_type, pattern, error):
+def CheckCStyleCast(state, clean_lines, line_num, cast_type, pattern):
     """Checks for a C-style cast by looking for the pattern.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      cast_type: The string for the C++ cast to recommend.  This is either
-        reinterpret_cast, static_cast, or const_cast, depending.
-      pattern: The regular expression used to find C-style casts.
-      error: The function to call with any errors found.
+        state: THe current state of the linting operation.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
+        cast_type: The string for the C++ cast to recommend.  This is either
+          reinterpret_cast, static_cast, or const_cast, depending.
+        pattern: The regular expression used to find C-style casts.
 
     Returns:
       True if an error was emitted.
       False otherwise.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     match = Search(pattern, line)
     if not match:
         return False
@@ -569,8 +540,8 @@ def CheckCStyleCast(state, filename, clean_lines, linenum, cast_type, pattern, e
 
     # Try expanding current context to see if we one level of
     # parentheses inside a macro.
-    if linenum > 0:
-        for i in range(linenum - 1, max(0, linenum - 5), -1):
+    if line_num > 0:
+        for i in range(line_num - 1, max(0, line_num - 5), -1):
             context = clean_lines.elided[i] + context
     if Match(r".*\b[_A-Z][_A-Z0-9]*\s*\((?:\([^()]*\)|[^()])*$", context):
         return False
@@ -591,10 +562,9 @@ def CheckCStyleCast(state, filename, clean_lines, linenum, cast_type, pattern, e
         return False
 
     # At this point, all that should be left is actual casts.
-    error(
-        state,
-        filename,
-        linenum,
+    state.log_error(
+        clean_lines.file_name,
+        line_num,
         "readability/casting",
         4,
         "Using C-style cast.  Use %s<%s>(...) instead" % (cast_type, match.group(1)),
@@ -603,20 +573,19 @@ def CheckCStyleCast(state, filename, clean_lines, linenum, cast_type, pattern, e
     return True
 
 
-def CheckGlobalStatic(state, filename, clean_lines, linenum, error):
+def CheckGlobalStatic(state, clean_lines, line_num):
     """Check for unsafe global or static objects.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
 
     # Match two lines at a time to support multiline declarations
-    if linenum + 1 < clean_lines.num_lines() and not Search(r"[;({]", line):
-        line += clean_lines.elided[linenum + 1].strip()
+    if line_num + 1 < clean_lines.num_lines() and not Search(r"[;({]", line):
+        line += clean_lines.elided[line_num + 1].strip()
 
     # Check for people declaring static/global STL strings at the top level.
     # This is dangerous because the C++ language does not guarantee that
@@ -652,55 +621,50 @@ def CheckGlobalStatic(state, filename, clean_lines, linenum, error):
         and not Match(r'\s*(<.*>)?(::[a-zA-Z0-9_]+)*\s*\(([^"]|$)', match.group(4))
     ):
         if Search(r"\bconst\b", line):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/string",
                 4,
                 "For a static/global string constant, use a C style string "
                 'instead: "%schar%s %s[]".' % (match.group(1), match.group(2) or "", match.group(3)),
             )
         else:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/string",
                 4,
                 "Static/global string variables are not permitted.",
             )
 
     if Search(r"\b([A-Za-z0-9_]*_)\(\1\)", line) or Search(r"\b([A-Za-z0-9_]*_)\(CHECK_NOTNULL\(\1\)\)", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/init",
             4,
             "You seem to be initializing a member variable with itself.",
         )
 
 
-def CheckPrintf(state, filename, clean_lines, linenum, error):
+def CheckPrintf(state, clean_lines, line_num):
     """Check for printf related issues.
 
     Args:
-      filename: The name of the current file.
+      state: the current state of the linting process
       clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+      line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
 
     # When snprintf is used, the second argument shouldn't be a literal.
     match = Search(r"snprintf\s*\(([^,]*),\s*([0-9]*)\s*,", line)
     if match and match.group(2) != "0":
         # If 2nd arg is zero, snprintf is used to calculate size.
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/printf",
             3,
             "If you can, use sizeof(%s) instead of %s as the 2nd arg "
@@ -709,20 +673,18 @@ def CheckPrintf(state, filename, clean_lines, linenum, error):
 
     # Check if some verboten C functions are being used.
     if Search(r"\bsprintf\s*\(", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/printf",
             5,
             "Never use sprintf. Use snprintf instead.",
         )
     match = Search(r"\b(strcpy|strcat)\s*\(", line)
     if match:
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/printf",
             4,
             "Almost always, snprintf is better than %s" % match.group(1),

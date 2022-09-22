@@ -18,12 +18,11 @@ from halint.cpplint import (
     ProcessFileData,
     RemoveMultiLineComments,
 )
+from halint.file_info import FileInfo
 from halint.function_state import FunctionState
 from halint.include_state import IncludeState
 from halint.lintstate import LintState
 from halint import NestingState
-
-from .utils.error_collector import ErrorCollector
 
 
 class CpplintTestBase(ABC):
@@ -38,66 +37,59 @@ class CpplintTestBase(ABC):
 
     # Perform lint on single line of input and return the error message.
     def PerformSingleLineLint(self, state, code):
-        error_collector = ErrorCollector()
         lines = code.split("\n")
-        RemoveMultiLineComments(state, "foo.h", lines, error_collector)
+        RemoveMultiLineComments(state, "foo.h", lines)
         clean_lines = CleansedLines(lines, "foo.h")
         include_state = IncludeState()
         function_state = FunctionState()
         nesting_state = NestingState()
         ProcessLine(
             state,
-            "foo.cc",
             "cc",
             clean_lines,
             0,
             include_state,
             function_state,
             nesting_state,
-            error_collector,
         )
         # Single-line lint tests are allowed to fail the 'unlintable function'
         # check.
-        error_collector.RemoveIfPresent("Lint failed to find start of function body.")
-        return error_collector.Results()
+        state.RemoveIfPresent("Lint failed to find start of function body.")
+        return state.Results()
 
     # Perform lint over multiple lines and return the error message.
     def PerformMultiLineLint(self, state: LintState, code: str):
-        FILE_NAME = "foo.h"
-        error_collector = ErrorCollector()
+        file_name = "foo.h"
         lines = code.split("\n")
-        RemoveMultiLineComments(state, FILE_NAME, lines, error_collector)
-        lines = CleansedLines(lines, FILE_NAME)
+        RemoveMultiLineComments(state, file_name, lines)
+        lines = CleansedLines(lines, file_name)
         nesting_state = NestingState()
         for i in range(lines.num_lines()):
-            nesting_state.update(state, lines, i, error_collector)
-            CheckStyle(state, FILE_NAME, lines, i, "h", nesting_state, error_collector)
-            CheckForNonStandardConstructs(state, FILE_NAME, lines, i, nesting_state, error_collector)
-        nesting_state.check_completed_blocks(state, FILE_NAME, error_collector)
-        return error_collector.Results()
+            nesting_state.update(state, lines, i)
+            CheckStyle(state, lines, i, nesting_state)
+            CheckForNonStandardConstructs(state, lines, i, nesting_state)
+        nesting_state.check_completed_blocks(state, file_name)
+        return state.Results()
 
     # Similar to PerformMultiLineLint, but calls CheckLanguage instead of
     # CheckForNonStandardConstructs
     def PerformLanguageRulesCheck(self, state: LintState, file_name, code):
-        error_collector = ErrorCollector()
         include_state = IncludeState()
         nesting_state = NestingState()
         lines = code.split("\n")
-        RemoveMultiLineComments(state, file_name, lines, error_collector)
+        RemoveMultiLineComments(state, file_name, lines)
         lines = CleansedLines(lines, file_name)
         ext = file_name[file_name.rfind(".") + 1 :]
         for i in range(lines.num_lines()):
             CheckLanguage(
                 state,
-                file_name,
                 lines,
                 i,
                 ext,
                 include_state,
                 nesting_state,
-                error_collector,
             )
-        return error_collector.Results()
+        return state.Results()
 
     def PerformFunctionLengthsCheck(self, state: LintState, code: str):
         """Perform Lint function length check on block of code and return warnings.
@@ -115,60 +107,97 @@ class CpplintTestBase(ABC):
           The accumulated errors.
         """
         file_name = "foo.cc"
-        error_collector = ErrorCollector()
         function_state = FunctionState()
         lines = code.split("\n")
-        RemoveMultiLineComments(state, file_name, lines, error_collector)
+        RemoveMultiLineComments(state, file_name, lines)
         lines = CleansedLines(lines, file_name)
         for i in range(lines.num_lines()):
-            CheckForFunctionLengths(state, file_name, lines, i, function_state, error_collector)
-        return error_collector.Results()
+            CheckForFunctionLengths(state, lines, i, function_state)
+        return state.Results()
 
     def PerformIncludeWhatYouUse(self, state: LintState, code: str, file_name: str = "foo.h", io=codecs):
         # First, build up the include state.
-        error_collector = ErrorCollector()
         include_state = IncludeState()
         nesting_state = NestingState()
         lines = code.split("\n")
-        RemoveMultiLineComments(state, file_name, lines, error_collector)
+        RemoveMultiLineComments(state, file_name, lines)
         lines = CleansedLines(lines, file_name)
         file_extension = pathlib.Path(file_name).suffix
         for i in range(lines.num_lines()):
             CheckLanguage(
                 state,
-                file_name,
                 lines,
                 i,
                 file_extension,
                 include_state,
                 nesting_state,
-                error_collector,
             )
         # We could clear the error_collector here, but this should
         # also be fine, since our IncludeWhatYouUse unittests do not
         # have language problems.
 
         # Second, look for missing includes.
-        CheckForIncludeWhatYouUse(state, file_name, lines, include_state, error_collector, io)
-        return error_collector.Results()
+        CheckForIncludeWhatYouUse(state, lines, include_state, io)
+        results = state.Results()
+        state.ResetErrorCounts()
+        return results
 
     # Perform lint and compare the error message with "expected_message".
     def TestSingleLineLint(self, state, code, expected_message):
-        assert expected_message == self.PerformSingleLineLint(state, code)
+        assert self.PerformSingleLineLint(state, code) == expected_message
+        # TODO: remove this when tests are independent
+        state.ResetErrorCounts()
 
     def TestMultiLineLint(self, state: LintState, code, expected_message):
-        assert expected_message == self.PerformMultiLineLint(state, code)
+        assert self.PerformMultiLineLint(state, code) == expected_message
+        # TODO: remove this when tests are independent
+        state.ResetErrorCounts()
 
-    def TestFile(
+    def lint_legacy_file(
         self,
         state: LintState,
         code: list[str],
         expected_message: list[str],
         filename: Optional[str] = None,
     ):
-        error_collector = ErrorCollector()
-        ProcessFileData(state, filename, pathlib.Path(filename).suffix, code, error_collector)
-        assert expected_message == error_collector.Results()
+        ProcessFileData(state, filename, pathlib.Path(filename).suffix, code)
+        assert state.Results() == expected_message
+        state.ResetErrorCounts()
+
+    def lint_file(self, state: LintState, file_name: str, expected_messages: str | list[str],
+                  ignore_addition_messages: bool = False):
+        path = pathlib.Path("tests/data").joinpath(file_name)
+        file_name = str(path)
+        file_info = FileInfo(file_name)
+        with open(file_name) as file:
+            ProcessFileData(
+                state,
+                file_name,
+                file_info.extension(),
+                file.read().split("\n")
+            )
+
+            self._compare_messages(expected_messages, state.Results(), ignore_addition_messages)
+
+    def _compare_messages(self,
+                          expected_messages: str | list[str],
+                          actual_messages: str | list[str],
+                          ignore_additional_messages: bool
+                          ):
+        if not ignore_additional_messages:
+            assert actual_messages == expected_messages
+            return
+
+        if type(actual_messages) == str:
+            assert actual_messages == expected_messages
+        else:
+            if type(expected_messages) == str:
+                assert expected_messages in actual_messages
+            else:
+                assert set(expected_messages).issubset(actual_messages)
+
+
+
 
     def TestFileWithMessageCounts(
         self,
@@ -177,13 +206,13 @@ class CpplintTestBase(ABC):
         filename,
         expected_messages: dict[str, int],
     ):
-        error_collector = ErrorCollector()
-        ProcessFileData(state, filename, pathlib.Path(filename).suffix, code, error_collector)
+        ProcessFileData(state, filename, pathlib.Path(filename).suffix, code)
         for error, count in expected_messages.items():
-            assert error_collector.ResultList().count(error) == count
+            assert state.ResultList().count(error) == count
+        state.ResetErrorCounts()
 
-    def TestLint(self, state: LintState, code: Union[str, list[str]], expected_message: list[str]):
-        if "\n" in expected_message:
+    def lint(self, state: LintState, code: Union[str, list[str]], expected_message: str | list[str]):
+        if "\n" in code:
             self.TestMultiLineLint(state, code, expected_message)
         else:
             self.TestSingleLineLint(state, code, expected_message)
@@ -195,23 +224,26 @@ class CpplintTestBase(ABC):
 
     def TestLanguageRulesCheck(self, state, file_name, code, expected_message):
         assert expected_message == self.PerformLanguageRulesCheck(state, file_name, code)
+        state.ResetErrorCounts()
 
     def TestIncludeWhatYouUse(self, state, code, expected_message):
         assert expected_message == self.PerformIncludeWhatYouUse(state, code)
+        state.ResetErrorCounts()
 
     def TestBlankLinesCheck(self, state, lines, start_errors, end_errors):
         for extension in ["c", "cc", "cpp", "cxx", "c++", "cu"]:
             self.doTestBlankLinesCheck(state, lines, start_errors, end_errors, extension)
+        state.ResetErrorCounts()
 
     def doTestBlankLinesCheck(self, state, lines, start_errors, end_errors, extension):
-        error_collector = ErrorCollector()
-        ProcessFileData(state, "foo." + extension, extension, lines, error_collector)
-        assert start_errors == error_collector.Results().count(
+        ProcessFileData(state, "foo." + extension, extension, lines)
+        assert start_errors == state.Results().count(
             "Redundant blank line at the start of a code block " "should be deleted.  [whitespace/blank_line] [2]"
         )
-        assert end_errors == error_collector.Results().count(
+        assert end_errors == state.Results().count(
             "Redundant blank line at the end of a code block " "should be deleted.  [whitespace/blank_line] [3]"
         )
+        state.ResetErrorCounts()
 
     def TrimExtraIndent(self, text_block):
         """Trim a uniform amount of whitespace off of each line in a string.

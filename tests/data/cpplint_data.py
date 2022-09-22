@@ -475,7 +475,7 @@ int main() {
     [
         """
 template <class T, class D = default_delete<T>> class unique_ptr {
-    public:
+ public:
     unique_ptr(unique_ptr&& u) noexcept;
 };""",
         "",
@@ -552,7 +552,6 @@ static SomeStruct kData = {
 ]
 
 multiline_comment_data = [
-    # missing explicit is bad
     [
         r"""int a = 0;
 /* multi-liner
@@ -564,11 +563,8 @@ Foo(int f);  // should cause a lint warning in code
     ],
     [
         r"""/* int a = 0; multi-liner
-static const int b = 0;""",
-        [
-            "Could not find end of multi-line comment  [readability/multiline_comment] [5]",
-            "Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.  [readability/multiline_comment] [5]",
-        ],
+               static const int b = 0;""",
+            "Could not find end of multi-line comment  [readability/multiline_comment] [5]"
     ],
     [
         r"""/* multi-line comment""",

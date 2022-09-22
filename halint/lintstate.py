@@ -1,5 +1,8 @@
+import re
 import sys
 import xml
+
+from .regex import Search
 
 
 class LintState:
@@ -23,6 +26,7 @@ class LintState:
         self._filters_backup = self._filters[:]
         self._counting_style = "total"  # In what way are we counting errors?
         self._errors_by_category = {}  # string to int dict storing error counts
+        self._errors = []  # list of all seen errors
         self._quiet = False  # Suppress non-error messagess?
 
         self._output_format = "emacs"
@@ -157,6 +161,7 @@ class LintState:
         """Sets the module's error statistic back to zero."""
         self.error_count = 0
         self.errors_by_category = {}
+        self._errors = []
 
     def IncrementErrorCount(self, category):
         """Bumps the module's error statistic."""
@@ -250,3 +255,227 @@ class LintState:
 
     def GetNonHeaderExtensions(self):
         return self.GetAllExtensions().difference(self.GetHeaderExtensions())
+
+    def Results(self) -> str | list[str]:
+        result_list = self.ResultList()
+        if len(result_list) <= 1:
+            return "".join(result_list)  # Most tests expect to have a string.
+        else:
+            return result_list  # Let's give a list if there is more than one.
+
+    def ResultList(self) -> list[str]:
+        return [f"{message}  [{category}] [{confidence}]" for message, category, confidence in self._errors]
+
+    def RemoveIfPresent(self, substr: str) -> None:
+        for (index, error) in enumerate(self.ResultList()):
+            if error.find(substr) != -1:
+                self._errors = self._errors[0:index] + self._errors[(index + 1):]
+                break
+
+    _SED_FIX_UPS = {
+        'Remove spaces around =': r's/ = /=/',
+        'Remove spaces around !=': r's/ != /!=/',
+        'Remove space before ( in if (': r's/if (/if(/',
+        'Remove space before ( in for (': r's/for (/for(/',
+        'Remove space before ( in while (': r's/while (/while(/',
+        'Remove space before ( in switch (': r's/switch (/switch(/',
+        'Should have a space between // and comment': r's/\/\//\/\/ /',
+        'Missing space before {': r's/\([^ ]\){/\1 {/',
+        'Tab found, replace by spaces': r's/\t/  /g',
+        'Line ends in whitespace.  Consider deleting these extra spaces.': r's/\s*$//',
+        'You don\'t need a ; after a }': r's/};/}/',
+        'Missing space after ,': r's/,\([^ ]\)/, \1/g',
+    }
+
+    def log_error(
+        self,
+        filename: str,
+        line_num: int,
+        category: str,
+        confidence: int,
+        message: str,
+    ):
+        """Logs the fact we've found a lint error.
+
+        We log where the error was found, and also our confidence in the error,
+        that is, how certain we are this is a legitimate style regression, and
+        not a misidentification or a use that's sometimes justified.
+
+        False positives can be suppressed by the use of
+        "cpplint(category)"  comments on the offending line.  These are
+        parsed into _error_suppressions.
+
+        Args:
+          filename: The name of the file containing the error.
+          line_num: The number of the line containing the error.
+          category: A string used to describe the "category" this bug
+            falls under: "whitespace", say, or "runtime".  Categories
+            may have a hierarchy separated by slashes: "whitespace/indent".
+          confidence: A number from 1-5 representing a confidence score for
+            the error, with 5 meaning that we are certain of the problem,
+            and 1 meaning that it could be a legitimate construct.
+          message: The error message.
+        """
+        if self._ShouldPrintError(category, confidence, line_num):
+            self.IncrementErrorCount(category)
+            self._errors.append((message, category, confidence))
+            if self.output_format == "vs7":
+                self.PrintError(
+                    "%s(%s): error cpplint: [%s] %s [%d]\n" % (filename, line_num, category, message, confidence))
+            elif self.output_format == "eclipse":
+                sys.stderr.write(
+                    "%s:%s: warning: %s  [%s] [%d]\n" % (filename, line_num, message, category, confidence))
+            elif self.output_format == "junit":
+                self.AddJUnitFailure(filename, line_num, message, category, confidence)
+            elif self.output_format in ["sed", "gsed"]:
+                if message in self._SED_FIX_UPS:
+                    sys.stdout.write(
+                        self.output_format
+                        + " -i '%s%s' %s # %s  [%s] [%d]\n"
+                        % (
+                            line_num,
+                            self._SED_FIX_UPS[message],
+                            filename,
+                            message,
+                            category,
+                            confidence,
+                        )
+                    )
+                else:
+                    sys.stderr.write(
+                        '# %s:%s:  "%s"  [%s] [%d]\n' % (filename, line_num, message, category, confidence))
+            else:
+                final_message = "%s:%s:  %s  [%s] [%d]\n" % (
+                    filename,
+                    line_num,
+                    message,
+                    category,
+                    confidence,
+                )
+                sys.stderr.write(final_message)
+
+    def _ShouldPrintError(self, category, confidence, line_num):
+        """If confidence >= verbose, category passes filter and is not suppressed."""
+
+        # There are three ways we might decide not to print an error message:
+        # a "NOLINT(category)" comment appears in the source,
+        # the verbosity level isn't high enough, or the filters filter it out.
+        if self._is_error_suppressed_by_nolint(category, line_num):
+            return False
+
+        if confidence < self.verbose_level:
+            return False
+
+        is_filtered = False
+        for one_filter in self.filters:
+            if one_filter.startswith("-"):
+                if category.startswith(one_filter[1:]):
+                    is_filtered = True
+            elif one_filter.startswith("+"):
+                if category.startswith(one_filter[1:]):
+                    is_filtered = False
+            else:
+                raise ValueError(self, f"Filters must start with '+' or '-', {one_filter} does not.")
+        if is_filtered:
+            return False
+
+        return True
+
+    def _is_error_suppressed_by_nolint(self, category, line_num):
+        """Returns true if the specified error category is suppressed on this line.
+
+        Consults the global error_suppressions map populated by
+        ParseNolintSuppressions/ProcessGlobalSuppresions/ResetNolintSuppressions.
+
+        Args:
+          category: str, the category of the error.
+          line_num: int, the current line number.
+        Returns:
+          bool, True iff the error should be suppressed due to a NOLINT comment or
+          global suppression.
+        """
+        return (
+            self._global_error_suppressions.get(category, False)
+            or line_num in self._error_suppressions.get(category, set())
+            or line_num in self._error_suppressions.get(None, set())
+        )
+
+
+def ParseNolintSuppressions(state: LintState, file_name, raw_line, line_num):
+    """Updates the global list of line error-suppressions.
+
+    Parses any NOLINT comments on the current line, updating the global
+    error_suppressions store.  Reports an error if the NOLINT comment
+    was malformed.
+
+    Args:
+      state: THe current state of the linting process
+      file_name: str, the name of the input file.
+      raw_line: str, the line of input text, with comments.
+      line_num: int, the number of the current line.
+    """
+    matched = Search(r"\bNOLINT(NEXTLINE)?\b(\([^)]+\))?", raw_line)
+    if matched:
+        if matched.group(1):
+            suppressed_line = line_num + 1
+        else:
+            suppressed_line = line_num
+        category = matched.group(2)
+        if category in (None, "(*)"):  # => "suppress all"
+            state._error_suppressions.setdefault(None, set()).add(suppressed_line)
+        else:
+            if category.startswith("(") and category.endswith(")"):
+                category = category[1:-1]
+                if category in _ERROR_CATEGORIES:
+                    state._error_suppressions.setdefault(category, set()).add(suppressed_line)
+                elif any(c for c in _OTHER_NOLINT_CATEGORY_PREFIXES if category.startswith(c)):
+                    # Ignore any categories from other tools.
+                    pass
+                elif category not in _LEGACY_ERROR_CATEGORIES:
+                    state.log_error(
+                        file_name,
+                        "readability/nolint",
+                        5,
+                        "Unknown NOLINT error category: %s" % category,
+                    )
+
+
+def process_global_suppressions(state: LintState, lines):
+    """Updates the list of global error suppressions.
+
+    Parses any lint directives in the file that have global effect.
+
+    Args:
+      lines: An array of strings, each representing a line of the file, with the
+             last element being empty if the file is terminated with a newline.
+    """
+
+    # Match strings that indicate we're working on a C (not C++) file.
+    _SEARCH_C_FILE = re.compile(r'\b(?:LINT_C_FILE|'
+                                r'vim?:\s*.*(\s*|:)filetype=c(\s*|:|$))')
+
+    # Match string that indicates we're working on a Linux Kernel file.
+    _SEARCH_KERNEL_FILE = re.compile(r'\b(?:LINT_KERNEL_FILE)')
+
+    _DEFAULT_C_SUPPRESSED_CATEGORIES = [
+        'readability/casting',
+    ]
+
+    # The default list of categories suppressed for Linux Kernel files.
+    _DEFAULT_KERNEL_SUPPRESSED_CATEGORIES = [
+        'whitespace/tab',
+    ]
+
+    for line in lines:
+        if _SEARCH_C_FILE.search(line):
+            for category in _DEFAULT_C_SUPPRESSED_CATEGORIES:
+                state._global_error_suppressions[category] = True
+        if _SEARCH_KERNEL_FILE.search(line):
+            for category in _DEFAULT_KERNEL_SUPPRESSED_CATEGORIES:
+                state._global_error_suppressions[category] = True
+
+
+def ResetNolintSuppressions(state: LintState):
+    """Resets the set of NOLINT suppressions to empty."""
+    state._error_suppressions.clear()
+    state._global_error_suppressions.clear()

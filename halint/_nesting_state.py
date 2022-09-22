@@ -17,7 +17,6 @@ from halint.block_info import (
 )
 from halint.cleansed_lines import CleansedLines
 from halint.lintstate import LintState
-from halint.error import ErrorLogger
 from halint.regex import Match
 
 
@@ -127,7 +126,7 @@ class NestingState:
 
             # Check if token is an unmatched '<'.
             # If not, move on to the next character.
-            if token != "<":
+            if token != "<":  # noqa: S105  Operators are not passwords
                 pos += 1
                 if pos >= len(line):
                     line_num += 1
@@ -212,7 +211,7 @@ class NestingState:
                 return classinfo
         return None
 
-    def check_completed_blocks(self, state: LintState, filename: str, error: ErrorLogger) -> None:
+    def check_completed_blocks(self, state: LintState, filename: str) -> None:
         """Checks that all classes and namespaces have been completely parsed.
 
         Call this when all lines in a file have been processed.
@@ -220,15 +219,13 @@ class NestingState:
         Args:
             state: The current state of the linting process.
             filename: The name of the current file.
-            error: The function to call with any errors found.
         """
         # Note: This test can result in false positives if #ifdef constructs
         # get in the way of brace matching. See the testBuildClass test in
         # cpplint_unittest.py for an example of this.
         for obj in self.stack:
             if isinstance(obj, _ClassInfo):
-                error(
-                    state,
+                state.log_error(
                     filename,
                     obj.starting_line_num,
                     "build/class",
@@ -236,8 +233,7 @@ class NestingState:
                     f"Failed to find complete declaration of class {obj.name}",
                 )
             elif isinstance(obj, _NamespaceInfo):
-                error(
-                    state,
+                state.log_error(
                     filename,
                     obj.starting_line_num,
                     "build/namespaces",
@@ -250,7 +246,6 @@ class NestingState:
         state: LintState,
         clean_lines: CleansedLines,
         line_num: int,
-        error: ErrorLogger,
     ) -> None:
         """Update nesting state with current line.
 
@@ -258,7 +253,6 @@ class NestingState:
             state: The current state of the linting process.
             clean_lines: A CleansedLines instance containing the file.
             line_num: The number of the line to check.
-            error: The function to call with any errors found.
         """
         line = clean_lines.elided[line_num]
 
@@ -285,11 +279,11 @@ class NestingState:
         # If we have not yet seen the opening brace for the innermost block,
         # run checks here.
         if not self.seen_open_brace():
-            self.stack[-1].check_begin(clean_lines, line_num, error)
+            self.stack[-1].check_begin(clean_lines, line_num)
 
-        self._update_access_controls(state, clean_lines.file_name, line, line_num, error)
+        self._update_access_controls(state, clean_lines.file_name, line, line_num)
         # Consume braces or semicolons from what's left of the line
-        line = self._consume_braces_and_semicolons(state, clean_lines, line, line_num, error)
+        line = self._consume_braces_and_semicolons(state, clean_lines, line, line_num)
 
     def _count_parentheses(self, line: str) -> None:
         if self.stack:
@@ -334,7 +328,7 @@ class NestingState:
         return line
 
     def _consume_braces_and_semicolons(
-        self, state: LintState, clean_lines: CleansedLines, line: str, line_num: int, error: ErrorLogger
+        self, state: LintState, clean_lines: CleansedLines, line: str, line_num: int
     ) -> str:
         while True:
             # Match first brace, semicolon, or closed parenthesis.
@@ -343,7 +337,7 @@ class NestingState:
                 break
 
             token = matched.group(1)
-            if token == "{":
+            if token == "{":  # noqa: S105  braces are not passwords
                 # If namespace or class hasn't seen an opening brace yet, mark
                 # namespace/class head as complete.  Push a new block onto the
                 # stack otherwise.
@@ -370,7 +364,7 @@ class NestingState:
             else:  # token == '}'
                 # Perform end of block checks and pop the stack.
                 if self.stack:
-                    self.stack[-1].CheckEnd(state, clean_lines, line_num, error)
+                    self.stack[-1].CheckEnd(state, clean_lines, line_num)
                     self.stack.pop()
             line = matched.group(2)
         return line
@@ -410,9 +404,7 @@ class NestingState:
                 line = class_decl_match.group(4)
         return line
 
-    def _update_access_controls(
-        self, state: LintState, filename: str, line: str, line_num: int, error: ErrorLogger
-    ) -> None:
+    def _update_access_controls(self, state: LintState, filename: str, line: str, line_num: int) -> None:
         if self.stack and isinstance(self.stack[-1], _ClassInfo):
             classinfo = self.stack[-1]
             access_match = Match(
@@ -433,8 +425,7 @@ class NestingState:
                     slots = ""
                     if access_match.group(3):
                         slots = access_match.group(3)
-                    error(
-                        state,
+                    state.log_error(
                         filename,
                         line_num,
                         "whitespace/indent",

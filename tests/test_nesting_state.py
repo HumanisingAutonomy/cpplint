@@ -12,19 +12,16 @@ from halint.block_info import (
 
 from halint import NestingState
 
-from .utils.error_collector import ErrorCollector
-
 
 class TestNestingState:
     @pytest.fixture
     def nesting_state(self):
-        self.error_collector = ErrorCollector() # TODO: move this into LintState
         return NestingState()
 
     def update_with_lines(self, state, lines, nesting_state):
         clean_lines = cpplint.CleansedLines(lines, "foo.h")
         for line in range(clean_lines.num_lines()):
-            nesting_state.update(state, clean_lines, line, self.error_collector)
+            nesting_state.update(state, clean_lines, line)
 
     def test_empty(self, state, nesting_state):
         self.update_with_lines(state, [], nesting_state)

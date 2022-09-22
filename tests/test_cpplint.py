@@ -1,5 +1,6 @@
 import codecs
 import os
+import pathlib
 import random
 import re
 import shutil
@@ -14,10 +15,9 @@ import halint.cpplint as cpplint
 from halint.lintstate import LintState
 from halint.block_info import GetLineWidth, IsBlankLine, _GetTextInside
 from halint.check_line import CheckForNamespaceIndentation
-from halint.file_info import path_split_to_list
+from halint.file_info import path_split_to_list, FileInfo
 
 from .base_case import CpplintTestBase
-from .utils.error_collector import ErrorCollector
 from .utils.mock_io import MockIo
 
 # Pattern for matching FileInfo.BaseName() against test file name
@@ -28,15 +28,14 @@ _TEST_FILE_SUFFIX = "(" + "|".join(_test_suffixes) + r")$"
 class TestCpplint(CpplintTestBase):
     def GetNamespaceResults(self, state: LintState, lines):
         file_name = "foo.h"
-        error_collector = ErrorCollector()
-        cpplint.RemoveMultiLineComments(state, file_name, lines, error_collector)
+        cpplint.RemoveMultiLineComments(state, file_name, lines)
         lines = cpplint.CleansedLines(lines, file_name)
         nesting_state = cpplint.NestingState()
         for i in range(lines.num_lines()):
-            nesting_state.update(state, lines, i, error_collector)
-            CheckForNamespaceIndentation(state, file_name, nesting_state, lines, i, error_collector)
+            nesting_state.update(state, lines, i)
+            CheckForNamespaceIndentation(state, file_name, nesting_state, lines, i)
 
-        return error_collector.Results()
+        return state.Results()
 
     def testForwardDeclarationNameSpaceIndentation(self, state: LintState):
         lines = [
@@ -122,79 +121,73 @@ class TestCpplint(CpplintTestBase):
         cpplint.RemoveMultiLineCommentsFromRange(lines, 1, 4)
         assert ["a", "/**/", "/**/", "/**/", "b"] == lines
 
-    def testSpacesAtEndOfLine(self, state):
-        self.TestSingleLineLint(
-            state,
-            "// Hello there ",
-            "Line ends in whitespace.  Consider deleting these extra spaces." "  [whitespace/end_of_line] [4]",
-        )
-
     # Test line length check.
     from .data.cpplint_data import line_length_data
 
     @pytest.mark.parametrize("code,expected_message", line_length_data)
     def testLineLengthCheck(self, state: LintState, code: str, expected_message: str):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     # Test error suppression annotations.
     from .data.cpplint_data import error_suppression_data
 
     @pytest.mark.parametrize("code,expected_message", error_suppression_data)
     def testErrorSuppressionData(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     # Test error suppression annotations.
     from .data.cpplint_data import error_suppression_file_data
 
     @pytest.mark.parametrize("code,expected_message,file_name", error_suppression_file_data)
     def testErrorSuppressionFileData(self, state, code, expected_message, file_name):
-        self.TestFile(state, code, expected_message, file_name)
+        self.lint_legacy_file(state, code, expected_message, file_name)
 
     # Test Variable Declarations.
     from .data.cpplint_data import variable_declaration_data
 
     @pytest.mark.parametrize("code,expected_message", variable_declaration_data)
     def testVariableDeclarations(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     # Test C-style cast cases.
     from .data.cpplint_data import c_style_cast_data
 
     @pytest.mark.parametrize("code,expected_message", c_style_cast_data)
     def testCStyleCast(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     # Test taking address of casts (runtime/casting)
     from .data.cpplint_data import runtime_casting_data
 
     @pytest.mark.parametrize("code,expected_message", runtime_casting_data)
     def testRuntimeCasting(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        results = self.PerformLanguageRulesCheck(state, "foo.cc", code)
+        assert results == expected_message
 
     from .data.cpplint_data import runtime_self_init_data
 
     @pytest.mark.parametrize("code,expected_message", runtime_self_init_data)
     def testRuntimeSelfinit(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     # Test for unnamed arguments in a method.
     from .data.cpplint_data import check_for_unnamed_params_data
 
     @pytest.mark.parametrize("code,expected_message", check_for_unnamed_params_data)
     def testCheckForUnnamedParams(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     from .data.cpplint_data import deprecated_cast_data
 
     @pytest.mark.parametrize("code,expected_message", deprecated_cast_data)
     def testDeprecatedCastData(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     from .data.cpplint_data import deprecated_cast_file_data
 
     @pytest.mark.parametrize("code,expected_message,file_name", deprecated_cast_file_data)
     def testDeprecatedCastFileData(self, state, code, expected_message, file_name):
-        self.TestFile(state, code, expected_message, file_name)
+        self.lint_legacy_file(state, code, expected_message, file_name)
 
     # The second parameter to a gMock method definition is a function signature
     # that often looks like a bad cast but should not picked up by lint.
@@ -202,7 +195,7 @@ class TestCpplint(CpplintTestBase):
 
     @pytest.mark.parametrize("code,expected_message", mock_method_data)
     def testMockMethodData(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     from .data.cpplint_data import mock_method_file_data
 
@@ -589,13 +582,13 @@ class TestCpplint(CpplintTestBase):
 
     @pytest.mark.parametrize("code, expected_message", raw_strings_data)
     def testRawStrings(self, state, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     from .data.cpplint_data import multiline_comment_data
 
     @pytest.mark.parametrize("code, expected_message", multiline_comment_data)
     def testMultiLineComments(self, state: LintState, code, expected_message):
-        self.TestLint(state, code, expected_message)
+        self.lint(state, code, expected_message)
 
     def testMultilineStrings(self, state):
         multiline_string_error_message = (
@@ -608,15 +601,14 @@ class TestCpplint(CpplintTestBase):
         for extension in ["c", "cc", "cpp", "cxx", "c++", "cu"]:
             file_path = "mydir/foo." + extension
 
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 file_path,
                 extension,
                 ['const char* str = "This is a\\', ' multiline string.";'],
-                error_collector,
             )
-            assert 2 == error_collector.ResultList().count(multiline_string_error_message)
+            assert 2 == state.ResultList().count(multiline_string_error_message)
+            state.ResetErrorCounts()
 
     from .data.cpplint_data import explicit_single_argument_constructors_data
 
@@ -635,7 +627,6 @@ class TestCpplint(CpplintTestBase):
         state.verbose_level = 0
 
         # Special case for variadic arguments
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -646,12 +637,12 @@ class TestCpplint(CpplintTestBase):
                 "  explicit Foo(const int arg, Args&&... args) {}",
                 "};",
             ],
-            error_collector,
         )
-        assert 0 == error_collector.ResultList().count(
+        assert 0 == state.ResultList().count(
             "Constructors that require multiple arguments should not be marked explicit.  [runtime/explicit] [0]"
         )
-        error_collector = ErrorCollector()
+        state.ResetErrorCounts()
+
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -662,12 +653,11 @@ class TestCpplint(CpplintTestBase):
                 "  explicit Foo(Args&&... args) {}",
                 "};",
             ],
-            error_collector,
         )
-        assert 0 == error_collector.ResultList().count(
+        assert 0 == state.ResultList().count(
             "Constructors that require multiple arguments should not be marked explicit.  [runtime/explicit] [0]"
         )
-        error_collector = ErrorCollector()
+        state.ResetErrorCounts()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -678,12 +668,11 @@ class TestCpplint(CpplintTestBase):
                 "  Foo(const int arg, Args&&... args) {}",
                 "};",
             ],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             "Constructors callable with one argument should be marked explicit.  [runtime/explicit] [5]"
         )
-        error_collector = ErrorCollector()
+        state.ResetErrorCounts()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -694,13 +683,12 @@ class TestCpplint(CpplintTestBase):
                 "  Foo(Args&&... args) {}",
                 "};",
             ],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             "Constructors callable with one argument should be marked explicit.  [runtime/explicit] [5]"
         )
+        state.ResetErrorCounts()
         # Anything goes inside an assembly block
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -715,13 +703,13 @@ class TestCpplint(CpplintTestBase):
                 "  }",
                 "}",
             ],
-            error_collector,
         )
-        assert 0 == error_collector.ResultList().count("Extra space before ( in function call  [whitespace/parens] [4]")
-        assert 0 == error_collector.ResultList().count(
+        assert 0 == state.ResultList().count("Extra space before ( in function call  [whitespace/parens] [4]")
+        assert 0 == state.ResultList().count(
             "Closing ) should be moved to the previous line  [whitespace/parens] [2]"
         )
-        assert 0 == error_collector.ResultList().count("Extra space before [  [whitespace/braces] [5]")
+        assert 0 == state.ResultList().count("Extra space before [  [whitespace/braces] [5]")
+        state.ResetErrorCounts()
 
     def testSlashStarCommentOnSingleLine(self, state):
         self.TestMultiLineLint(state, """/* static */ Foo(int f);""", "")
@@ -791,8 +779,8 @@ class TestCpplint(CpplintTestBase):
             self.TestSingleLineLint(state, "virtual int F() %s" % virt_specifier, error_message)
             self.TestSingleLineLint(state, "virtual int F() %s;" % virt_specifier, error_message)
             self.TestSingleLineLint(state, "virtual int F() %s {" % virt_specifier, error_message)
+            self.TestSingleLineLint(state, "virtual int F() %s {" % virt_specifier, error_message)
 
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 "foo.cc",
@@ -808,13 +796,15 @@ class TestCpplint(CpplintTestBase):
                     "    LOCKS_EXCLUDED(lock) " + virt_specifier + ";",
                     "",
                 ],
-                error_collector,
             )
             assert [
-                error_message,
-                error_message,
-                error_message,
-            ] == error_collector.Results()
+                       error_message,
+                       error_message,
+                       error_message,
+                   ] == state.Results()
+            state.ResetErrorCounts()
+
+        self.TestSingleLineLint(state, "virtual int F() %s {" % virt_specifier, error_message)
 
         error_message = message_template % ("override", "final")
         self.TestSingleLineLint(state, "int F() override final", error_message)
@@ -824,7 +814,6 @@ class TestCpplint(CpplintTestBase):
         self.TestSingleLineLint(state, "int F() final override;", error_message)
         self.TestSingleLineLint(state, "int F() final override {}", error_message)
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -840,9 +829,9 @@ class TestCpplint(CpplintTestBase):
                 "}",
                 "",
             ],
-            error_collector,
         )
-        assert "" == error_collector.Results()
+        assert "" == state.Results()
+        state.ResetErrorCounts()
 
         self.TestSingleLineLint(state, "void Finalize(AnnotationProto *final) override;", "")
 
@@ -1013,127 +1002,21 @@ class TestCpplint(CpplintTestBase):
         self.TestSingleLineLint(state, "delete a[some_var];", "")
         self.TestSingleLineLint(state, "return a[some_var];", "")
 
-    # DISALLOW_COPY_AND_ASSIGN and DISALLOW_IMPLICIT_CONSTRUCTORS should be at
-    # end of class if present.
-    def testDisallowMacrosAtEnd(self, state):
-        for macro_name in (
-            "DISALLOW_COPY_AND_ASSIGN",
-            "DISALLOW_IMPLICIT_CONSTRUCTORS",
-        ):
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(
-                state,
-                "foo.cc",
-                "cc",
-                [
-                    "// Copyright 2014 Your Company.",
-                    "class SomeClass {",
-                    " private:",
-                    "  %s(SomeClass);" % macro_name,
-                    "  int member_;",
-                    "};",
-                    "",
-                ],
-                error_collector,
-            )
-            assert (
-                "%s should be the last thing in the class" % macro_name
-            ) + "  [readability/constructors] [3]" == error_collector.Results()
+    disallow_macros_at_end_data = [
+        ["test1.cc",
+         "DISALLOW_COPY_AND_ASSIGN should be the last thing in the class  [readability/constructors] [3]"],
+        ["test2.cc",
+         "DISALLOW_IMPLICIT_CONSTRUCTORS should be the last thing in the class  [readability/constructors] [3]"],
+        ["test3.cc", ""],
+        ["test4.cc", ""]
+    ]
 
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(
-                state,
-                "foo.cc",
-                "cc",
-                [
-                    "// Copyright 2014 Your Company.",
-                    "class OuterClass {",
-                    " private:",
-                    "  struct InnerClass {",
-                    "   private:",
-                    "    %s(InnerClass);" % macro_name,
-                    "    int member;",
-                    "  };",
-                    "};",
-                    "",
-                ],
-                error_collector,
-            )
-            assert (
-                "%s should be the last thing in the class" % macro_name
-            ) + "  [readability/constructors] [3]" == error_collector.Results()
-
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(
-                state,
-                "foo.cc",
-                "cc",
-                [
-                    "// Copyright 2014 Your Company.",
-                    "class OuterClass1 {",
-                    " private:",
-                    "  struct InnerClass1 {",
-                    "   private:",
-                    "    %s(InnerClass1);" % macro_name,
-                    "  };",
-                    "  %s(OuterClass1);" % macro_name,
-                    "};",
-                    "struct OuterClass2 {",
-                    " private:",
-                    "  class InnerClass2 {",
-                    "   private:",
-                    "    %s(InnerClass2);" % macro_name,
-                    "    // comment",
-                    "  };",
-                    "",
-                    "  %s(OuterClass2);" % macro_name,
-                    "",
-                    "  // comment",
-                    "};",
-                    "void Func() {",
-                    "  struct LocalClass {",
-                    "   private:",
-                    "    %s(LocalClass);" % macro_name,
-                    "  } variable;",
-                    "}",
-                    "",
-                ],
-                error_collector,
-            )
-            assert "" == error_collector.Results()
+    @pytest.mark.parametrize("file_name, expected_messages", disallow_macros_at_end_data)
+    def test_disallow_macros_at_end(self, state, file_name: str, expected_messages: str | list[str]):
+        file_name = str(pathlib.Path("disallow_macros_at_end/").joinpath(file_name))
+        self.lint_file(state, file_name, expected_messages)
 
     # Brace usage
-    def testBraces(self, state):
-        # Braces shouldn't be followed by a ; unless they're defining a struct
-        # or initializing an array
-        self.TestSingleLineLint(state, "int a[3] = { 1, 2, 3 };", "")
-        self.TestSingleLineLint(
-            state,
-            """const int foo[] =
-               {1, 2, 3 };""",
-            "",
-        )
-        # For single line, unmatched '}' with a ';' is ignored (not enough context)
-        self.TestMultiLineLint(
-            state,
-            """int a[3] = { 1,
-                        2,
-                        3 };""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """int a[2][3] = { { 1, 2 },
-                         { 3, 4 } };""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """int a[2][3] =
-               { { 1, 2 },
-                 { 3, 4 } };""",
-            "",
-        )
 
     # CHECK/EXPECT_TRUE/EXPECT_FALSE replacements
     def testCheckCheck(self, state):
@@ -1493,7 +1376,6 @@ class TestCpplint(CpplintTestBase):
 
         # Don't warn on out-of-line method definitions.
         self.TestSingleLineLint(state, "void NS::Func(X& x) {", "")
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -1504,13 +1386,12 @@ class TestCpplint(CpplintTestBase):
                 "void f(int& q) {}",
                 "",
             ],
-            error_collector,
         )
-        assert operand_error_message % "int& q" == error_collector.Results()
+        assert operand_error_message % "int& q" == state.Results()
+        state.ResetErrorCounts()
 
         # Other potential false positives.  These need full parser
         # state to reproduce as opposed to just TestSingleLineLint.
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -1553,12 +1434,11 @@ class TestCpplint(CpplintTestBase):
                 "      initializer2_(a6 & b6) {}",
                 "",
             ],
-            error_collector,
         )
-        assert "" == error_collector.Results()
+        assert "" == state.Results()
+        state.ResetErrorCounts()
 
         # Multi-line references
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -1580,16 +1460,15 @@ class TestCpplint(CpplintTestBase):
                 "}",
                 "",
             ],
-            error_collector,
         )
         assert [
-            operand_error_message % "Outer::Inner& nonconst_x",
-            operand_error_message % "Outer::Inner& nonconst_y",
-            operand_error_message % "Outer<int>::Inner& nonconst_z",
-        ] == error_collector.Results()
+                   operand_error_message % "Outer::Inner& nonconst_x",
+                   operand_error_message % "Outer::Inner& nonconst_y",
+                   operand_error_message % "Outer<int>::Inner& nonconst_z",
+               ] == state.Results()
+        state.ResetErrorCounts()
 
         # A peculiar false positive due to bad template argument parsing
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -1605,9 +1484,9 @@ class TestCpplint(CpplintTestBase):
                 "}",
                 "",
             ],
-            error_collector.Results(),
         )
-        assert "" == error_collector.Results()
+        assert "" == state.Results()
+        state.ResetErrorCounts()
 
     def testBraceAtBeginOfLine(self, state):
         self.TestSingleLineLint(
@@ -1616,7 +1495,6 @@ class TestCpplint(CpplintTestBase):
             "{ should almost always be at the end of the previous line" "  [whitespace/braces] [4]",
         )
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -1641,11 +1519,11 @@ class TestCpplint(CpplintTestBase):
                 "}",
                 "#endif",
             ],
-            error_collector,
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             "{ should almost always be at the end of the previous line" "  [whitespace/braces] [4]"
         )
+        state.ResetErrorCounts()
 
         self.TestMultiLineLint(
             state,
@@ -1784,54 +1662,6 @@ class TestCpplint(CpplintTestBase):
             "",
         )
 
-    def testSemiColonAfterBraces(self, state):
-        self.TestSingleLineLint(
-            state,
-            "if (cond) { func(); };",
-            "You don't need a ; after a }  [readability/braces] [4]",
-        )
-        self.TestSingleLineLint(
-            state,
-            "void Func() {};",
-            "You don't need a ; after a }  [readability/braces] [4]",
-        )
-        self.TestSingleLineLint(
-            state,
-            "void Func() const {};",
-            "You don't need a ; after a }  [readability/braces] [4]",
-        )
-        self.TestSingleLineLint(state, "class X {};", "")
-        for keyword in ["struct", "union"]:
-            for align in ["", " alignas(16)"]:
-                for typename in ["", " X"]:
-                    for identifier in ["", " x"]:
-                        self.TestSingleLineLint(
-                            state,
-                            keyword + align + typename + " {}" + identifier + ";",
-                            "",
-                        )
-
-        self.TestSingleLineLint(state, "class X : public Y {};", "")
-        self.TestSingleLineLint(state, "class X : public MACRO() {};", "")
-        self.TestSingleLineLint(state, "class X : public decltype(expr) {};", "")
-        self.TestSingleLineLint(state, "DEFINE_FACADE(PCQueue::Watcher, PCQueue) {};", "")
-        self.TestSingleLineLint(state, "VCLASS(XfaTest, XfaContextTest) {};", "")
-        self.TestSingleLineLint(state, "class STUBBY_CLASS(H, E) {};", "")
-        self.TestSingleLineLint(state, "class STUBBY2_CLASS(H, E) {};", "")
-        self.TestSingleLineLint(
-            state,
-            "TEST(TestCase, TestName) {};",
-            "You don't need a ; after a }  [readability/braces] [4]",
-        )
-        self.TestSingleLineLint(
-            state,
-            "TEST_F(TestCase, TestName) {};",
-            "You don't need a ; after a }  [readability/braces] [4]",
-        )
-
-        self.TestSingleLineLint(state, "file_tocs_[i] = (FileToc) {a, b, c};", "")
-        self.TestMultiLineLint(state, "class X : public Y,\npublic Z {};", "")
-
     def testSpacingBeforeBrackets(self, state: LintState):
         self.TestSingleLineLint(
             state,
@@ -1843,92 +1673,22 @@ class TestCpplint(CpplintTestBase):
         self.TestSingleLineLint(state, "#define NODISCARD [[nodiscard]]", "")
         self.TestSingleLineLint(state, "void foo(int param [[maybe_unused]]);", "")
 
-    def testLambda(self, state):
-        self.TestSingleLineLint(state, "auto x = []() {};", "")
-        self.TestSingleLineLint(state, "return []() {};", "")
-        self.TestMultiLineLint(state, "auto x = []() {\n};\n", "")
-        self.TestSingleLineLint(
-            state,
-            "int operator[](int x) {};",
-            "You don't need a ; after a }  [readability/braces] [4]",
-        )
-
-        self.TestMultiLineLint(state, "auto x = [&a,\nb]() {};", "")
-        self.TestMultiLineLint(state, "auto x = [&a,\nb]\n() {};", "")
-        self.TestMultiLineLint(
-            state,
-            "auto x = [&a,\n" "          b](\n" "    int a,\n" "    int b) {\n" "  return a +\n" "         b;\n" "};\n",
-            "",
-        )
-
+    lambda_data = [
+        ["auto x = []() {};", ""],
+        ["return []() {};", ""],
+        ["auto x = []() {\n};\n", ""],
+        ["int operator[](int x) {};", "You don't need a ; after a }  [readability/braces] [4]"],
+        ["auto x = [&a,\nb]() {};", ""],
+        ["auto x = [&a,\nb]\n() {};", ""],
+        ["auto x = [&a,\n" "          b](\n" "    int a,\n" "    int b) {\n" "  return a +\n" "         b;\n" "};\n",
+         ""],
         # Avoid false positives with operator[]
-        self.TestSingleLineLint(state, "table_to_children[&*table].push_back(dependent);", "")
+        ["table_to_children[&*table].push_back(dependent);", ""]
+    ]
 
-    def testBraceInitializerList(self, state):
-        self.TestSingleLineLint(state, "MyStruct p = {1, 2};", "")
-        self.TestSingleLineLint(state, "MyStruct p{1, 2};", "")
-        self.TestSingleLineLint(state, "vector<int> p = {1, 2};", "")
-        self.TestSingleLineLint(state, "vector<int> p{1, 2};", "")
-        self.TestSingleLineLint(state, "x = vector<int>{1, 2};", "")
-        self.TestSingleLineLint(state, "x = (struct in_addr){ 0 };", "")
-        self.TestSingleLineLint(state, "Func(vector<int>{1, 2})", "")
-        self.TestSingleLineLint(state, "Func((struct in_addr){ 0 })", "")
-        self.TestSingleLineLint(state, "Func(vector<int>{1, 2}, 3)", "")
-        self.TestSingleLineLint(state, "Func((struct in_addr){ 0 }, 3)", "")
-        self.TestSingleLineLint(state, "LOG(INFO) << char{7};", "")
-        self.TestSingleLineLint(state, 'LOG(INFO) << char{7} << "!";', "")
-        self.TestSingleLineLint(state, "int p[2] = {1, 2};", "")
-        self.TestSingleLineLint(state, "return {1, 2};", "")
-        self.TestSingleLineLint(state, "std::unique_ptr<Foo> foo{new Foo{}};", "")
-        self.TestSingleLineLint(state, "auto foo = std::unique_ptr<Foo>{new Foo{}};", "")
-        self.TestSingleLineLint(state, 'static_assert(Max7String{}.IsValid(), "");', "")
-        self.TestSingleLineLint(state, "map_of_pairs[{1, 2}] = 3;", "")
-        self.TestSingleLineLint(state, "ItemView{has_offer() ? new Offer{offer()} : nullptr", "")
-        self.TestSingleLineLint(state, "template <class T, EnableIf<::std::is_const<T>{}> = 0>", "")
-
-        self.TestMultiLineLint(state, "std::unique_ptr<Foo> foo{\n" "  new Foo{}\n" "};\n", "")
-        self.TestMultiLineLint(
-            state,
-            "std::unique_ptr<Foo> foo{\n" "  new Foo{\n" "    new Bar{}\n" "  }\n" "};\n",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            "if (true) {\n" "  if (false){ func(); }\n" "}\n",
-            "Missing space before {  [whitespace/braces] [5]",
-        )
-        self.TestMultiLineLint(
-            state,
-            "MyClass::MyClass()\n" "    : initializer_{\n" "          Func()} {\n" "}\n",
-            "",
-        )
-        self.TestSingleLineLint(
-            state,
-            "const pair<string, string> kCL" + ("o" * 41) + "gStr[] = {\n",
-            "Lines should be <= 80 characters long" "  [whitespace/line_length] [2]",
-        )
-        self.TestMultiLineLint(
-            state,
-            "const pair<string, string> kCL" + ("o" * 40) + "ngStr[] =\n"
-            "    {\n"
-            '        {"gooooo", "oooogle"},\n'
-            "};\n",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            "const pair<string, string> kCL" + ("o" * 39) + "ngStr[] =\n"
-            "    {\n"
-            '        {"gooooo", "oooogle"},\n'
-            "};\n",
-            "{ should almost always be at the end of " "the previous line  [whitespace/braces] [4]",
-        )
-
-    def testSpacingAroundElse(self, state: LintState):
-        self.TestSingleLineLint(state, "}else {", "Missing space before else" "  [whitespace/braces] [5]")
-        self.TestSingleLineLint(state, "} else{", "Missing space before {" "  [whitespace/braces] [5]")
-        self.TestSingleLineLint(state, "} else {", "")
-        self.TestSingleLineLint(state, "} else if (foo) {", "")
+    @pytest.mark.parametrize("code, expected_messages", lambda_data)
+    def test_lambda(self, state, code, expected_messages):
+        self.lint(state, code, expected_messages)
 
     def testSpacingWithInitializerLists(self, state: LintState):
         self.TestSingleLineLint(state, "int v[1][3] = {{1, 2, 3}};", "")
@@ -2031,126 +1791,6 @@ class TestCpplint(CpplintTestBase):
             "  [whitespace/semicolon] [5]",
         )
         self.TestSingleLineLint(state, "for (int i = 0; ;", "")
-
-    def testEmptyBlockBody(self, state):
-        self.TestSingleLineLint(
-            state,
-            "while (true);",
-            "Empty loop bodies should use {} or continue" "  [whitespace/empty_loop_body] [5]",
-        )
-        self.TestSingleLineLint(
-            state,
-            "if (true);",
-            "Empty conditional bodies should use {}" "  [whitespace/empty_conditional_body] [5]",
-        )
-        self.TestSingleLineLint(state, "while (true)", "")
-        self.TestSingleLineLint(state, "while (true) continue;", "")
-        self.TestSingleLineLint(
-            state,
-            "for (;;);",
-            "Empty loop bodies should use {} or continue" "  [whitespace/empty_loop_body] [5]",
-        )
-        self.TestSingleLineLint(state, "for (;;)", "")
-        self.TestSingleLineLint(state, "for (;;) continue;", "")
-        self.TestSingleLineLint(state, "for (;;) func();", "")
-        self.TestSingleLineLint(
-            state,
-            "if (test) {}",
-            "If statement had no body and no else clause" "  [whitespace/empty_if_body] [4]",
-        )
-        self.TestSingleLineLint(state, "if (test) func();", "")
-        self.TestSingleLineLint(state, "if (test) {} else {}", "")
-        self.TestMultiLineLint(
-            state,
-            """while (true &&
-                                     false);""",
-            "Empty loop bodies should use {} or continue" "  [whitespace/empty_loop_body] [5]",
-        )
-        self.TestMultiLineLint(
-            state,
-            """do {
-                           } while (false);""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """#define MACRO \\
-                           do { \\
-                           } while (false);""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """do {
-                           } while (false);  // next line gets a warning
-                           while (false);""",
-            "Empty loop bodies should use {} or continue" "  [whitespace/empty_loop_body] [5]",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (test) {
-                           }""",
-            "If statement had no body and no else clause" "  [whitespace/empty_if_body] [4]",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (test,
-                               func({})) {
-                           }""",
-            "If statement had no body and no else clause" "  [whitespace/empty_if_body] [4]",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (test)
-                             func();""",
-            "",
-        )
-        self.TestSingleLineLint(state, "if (test) { hello; }", "")
-        self.TestSingleLineLint(state, "if (test({})) { hello; }", "")
-        self.TestMultiLineLint(
-            state,
-            """if (test) {
-                             func();
-                           }""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (test) {
-                             // multiline
-                             // comment
-                           }""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (test) {  // comment
-                           }""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (test) {
-                           } else {
-                           }""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (func(p1,
-                               p2,
-                               p3)) {
-                             func();
-                           }""",
-            "",
-        )
-        self.TestMultiLineLint(
-            state,
-            """if (func({}, p1)) {
-                             func();
-                           }""",
-            "",
-        )
 
     def testSpacingForRangeBasedFor(self, state: LintState):
         # Basic correctly formatted case:
@@ -2268,7 +1908,6 @@ class TestCpplint(CpplintTestBase):
         )
 
         # Check multiline cases.
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2295,9 +1934,8 @@ class TestCpplint(CpplintTestBase):
                 "static_member_variable5;",
                 "",
             ],
-            error_collector,
         )
-        assert error_collector.Results() == [
+        assert state.Results() == [
             error_msg % "const char Class::static_member_variable1",
             error_msg % "const char Class::static_member_variable2",
             error_msg % "const char Class::static_member_variable3",
@@ -2456,18 +2094,19 @@ class TestCpplint(CpplintTestBase):
     # line was preceded by N lines of empty or comment lines.  To be
     # precise, the '// marker so line numbers and indices both start at
     # 1' line was also causing the issue.
-    def testLinePrecededByEmptyOrCommentLines(self, state):
-        def DoTest(self, lines):
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(state, "foo.cc", "cc", lines, error_collector)
-            # The warning appears only once.
-            assert 1 == error_collector.Results().count(
-                "Do not use namespace using-directives.  " "Use using-declarations instead." "  [build/namespaces] [5]"
-            )
+    line_preceded_by_empty_or_comment_lines_data = [
+        ["using namespace foo;"],
+        ["", "", "", "using namespace foo;"],
+        ["// hello", "using namespace foo;"]
+    ]
 
-        DoTest(self, ["using namespace foo;"])
-        DoTest(self, ["", "", "", "using namespace foo;"])
-        DoTest(self, ["// hello", "using namespace foo;"])
+    @pytest.mark.parametrize("code", line_preceded_by_empty_or_comment_lines_data)
+    def test_line_preceded_by_empty_or_comment_lines(self, state, code):
+        cpplint.ProcessFileData(state, "foo.cc", "cc", code)
+        # The warning appears only once.
+        assert 1 == state.Results().count(
+            "Do not use namespace using-directives.  " "Use using-declarations instead." "  [build/namespaces] [5]"
+        )
 
     def testUsingLiteralsNamespaces(self, state: LintState):
         self.TestSingleLineLint(
@@ -2487,10 +2126,9 @@ class TestCpplint(CpplintTestBase):
 
     def testNewlineAtEOF(self, state):
         def DoTest(self, data, is_missing_eof):
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(state, "foo.cc", "cc", data.split("\n"), error_collector)
+            cpplint.ProcessFileData(state, "foo.cc", "cc", data.split("\n"))
             # The warning appears only once.
-            assert int(is_missing_eof) == error_collector.Results().count(
+            assert int(is_missing_eof) == state.Results().count(
                 "Could not find a newline character at the end of the file.  [whitespace/ending_newline] [5]"
             )
 
@@ -2499,16 +2137,16 @@ class TestCpplint(CpplintTestBase):
 
     def testInvalidUtf8(self, state):
         def DoTest(self, raw_bytes, has_invalid_utf8):
-            error_collector = ErrorCollector()
             if sys.version_info < (3,):
                 unidata = str(raw_bytes, "utf8", "replace").split("\n")
             else:
                 unidata = str(raw_bytes, "utf8", "replace").split("\n")
-            cpplint.ProcessFileData(state, "foo.cc", "cc", unidata, error_collector)
+            cpplint.ProcessFileData(state, "foo.cc", "cc", unidata)
             # The warning appears only once.
-            assert int(has_invalid_utf8) == error_collector.Results().count(
+            assert int(has_invalid_utf8) == state.Results().count(
                 "Line contains invalid UTF-8 (or Unicode replacement character).  [readability/utf8] [5]"
             )
+            state.ResetErrorCounts()
 
         DoTest(self, codecs.latin_1_encode("Hello world\n")[0], False)
         DoTest(self, codecs.latin_1_encode("\xe9\x8e\xbd\n")[0], False)
@@ -2519,19 +2157,17 @@ class TestCpplint(CpplintTestBase):
 
     def testBadCharacters(self, state):
         # Test for NUL bytes only
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "nul.cc",
             "cc",
             ["// Copyright 2014 Your Company.", "\0", ""],
-            error_collector,
         )
-        assert error_collector.Results() == "Line contains NUL byte.  [readability/nul] [5]"
+        assert state.Results() == "Line contains NUL byte.  [readability/nul] [5]"
+        state.ResetErrorCounts()
 
         # Make sure both NUL bytes and UTF-8 are caught if they appear on
         # the same line.
-        error_collector = ErrorCollector()
         raw_bytes = codecs.latin_1_encode("\xe9x\0")[0]
         if sys.version_info < (3,):
             unidata = str(raw_bytes, "utf8", "replace")
@@ -2542,9 +2178,8 @@ class TestCpplint(CpplintTestBase):
             "nul_utf8.cc",
             "cc",
             ["// Copyright 2014 Your Company.", unidata, ""],
-            error_collector,
         )
-        assert error_collector.Results() == [
+        assert state.Results() == [
             "Line contains invalid UTF-8 (or Unicode replacement character)." "  [readability/utf8] [5]",
             "Line contains NUL byte.  [readability/nul] [5]",
         ]
@@ -2568,7 +2203,6 @@ class TestCpplint(CpplintTestBase):
         self.TestBlankLinesCheck(state, ["int x(\n", "   int a) {\n", "\n", "return 0;\n", "}"], 1, 0)
 
     def testAllowBlankLineBeforeClosingNamespace(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2595,14 +2229,12 @@ class TestCpplint(CpplintTestBase):
                 "",
                 "}",
             ],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count(
+        assert 0 == state.Results().count(
             "Redundant blank line at the end of a code block should be deleted.  [whitespace/blank_line] [3]"
         )
 
     def testAllowBlankLineBeforeIfElseChain(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2618,30 +2250,26 @@ class TestCpplint(CpplintTestBase):
                 "",  # Warning on this line
                 "}",
             ],
-            error_collector,
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             "Redundant blank line at the end of a code block should be deleted.  [whitespace/blank_line] [3]"
         )
 
     def testAllowBlankLineAfterExtern(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
             "cc",
             ['extern "C" {', "", "EXPORTAPI void APICALL Some_function() {}", "", "}"],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count(
+        assert 0 == state.Results().count(
             "Redundant blank line at the start of a code block should be deleted." "  [whitespace/blank_line] [2]"
         )
-        assert 0 == error_collector.Results().count(
+        assert 0 == state.Results().count(
             "Redundant blank line at the end of a code block should be deleted." "  [whitespace/blank_line] [3]"
         )
 
     def testBlankLineBeforeSectionKeyword(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2677,47 +2305,15 @@ class TestCpplint(CpplintTestBase):
                 "  int a;\\",
                 "};",
             ],
-            error_collector,
         )
-        assert 2 == error_collector.Results().count(
+        assert 2 == state.Results().count(
             '"private:" should be preceded by a blank line  [whitespace/blank_line] [3]'
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             '"protected:" should be preceded by a blank line  [whitespace/blank_line] [3]'
         )
 
-    def testNoBlankLineAfterSectionKeyword(self, state):
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(
-            state,
-            "foo.cc",
-            "cc",
-            [
-                "class A {",
-                " public:",
-                "",  # warning 1
-                " private:",
-                "",  # warning 2
-                "  struct B {",
-                "   protected:",
-                "",  # warning 3
-                "  };",
-                "};",
-            ],
-            error_collector,
-        )
-        assert 1 == error_collector.Results().count(
-            'Do not leave a blank line after "public:"  [whitespace/blank_line] [3]'
-        )
-        assert 1 == error_collector.Results().count(
-            'Do not leave a blank line after "protected:"  [whitespace/blank_line] [3]'
-        )
-        assert 1 == error_collector.Results().count(
-            'Do not leave a blank line after "private:"  [whitespace/blank_line] [3]'
-        )
-
     def testAllowBlankLinesInRawStrings(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2731,12 +2327,10 @@ class TestCpplint(CpplintTestBase):
                 ')"};',
                 "",
             ],
-            error_collector,
         )
-        assert "" == error_collector.Results()
+        assert "" == state.Results()
 
     def testElseOnSameLineAsClosingBraces(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2749,95 +2343,60 @@ class TestCpplint(CpplintTestBase):
                 " else {" "",  # Warning on this line
                 "}",
             ],
-            error_collector,
         )
-        assert 2 == error_collector.Results().count(
+        assert 2 == state.Results().count(
             "An else should appear on the same line as the preceding }  [whitespace/newline] [4]"
         )
+        state.ResetErrorCounts()
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
             "cc",
             ["if (hoge) {", "", "}", "else", "{", "", "}"],  # Warning on this line
-            error_collector,
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             "An else should appear on the same line as the preceding }  [whitespace/newline] [4]"
         )
+        state.ResetErrorCounts()
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
             "cc",
             ["if (hoge) {", "", "}", "else_function();"],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count(
+        assert 0 == state.Results().count(
             "An else should appear on the same line as the preceding }  [whitespace/newline] [4]"
         )
-
-    def testMultipleStatementsOnSameLine(self, state):
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(
-            state,
-            "foo.cc",
-            "cc",
-            [
-                "for (int i = 0; i < 1; i++) {}",
-                "switch (x) {",
-                "  case 0: func(); break; ",
-                "}",
-                "sum += MathUtil::SafeIntRound(x); x += 0.1;",
-            ],
-            error_collector,
-        )
-        assert 0 == error_collector.Results().count("More than one command on the same line  [whitespace/newline] [0]")
-
-        state.verbose_level = 0
-        cpplint.ProcessFileData(
-            state,
-            "foo.cc",
-            "cc",
-            ["sum += MathUtil::SafeIntRound(x); x += 0.1;"],
-            error_collector,
-        )
+        state.ResetErrorCounts()
 
     def testLambdasOnSameLine(self, state):
-        error_collector = ErrorCollector()
         state.verbose_level = 0
         cpplint.ProcessFileData(
             state,
             "foo.cc",
             "cc",
             ["const auto lambda = " "[](const int i) { return i; };"],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count("More than one command on the same line  [whitespace/newline] [0]")
+        assert 0 == state.Results().count("More than one command on the same line  [whitespace/newline] [0]")
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
             "cc",
             ["const auto result = std::any_of(vector.begin(), " "vector.end(), " "[](const int i) { return i > 0; });"],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count("More than one command on the same line  [whitespace/newline] [0]")
+        assert 0 == state.Results().count("More than one command on the same line  [whitespace/newline] [0]")
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
             "cc",
             ["return mutex::Lock<void>([this]() { " "this->ReadLock(); }, [this]() { " "this->ReadUnlock(); });"],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count("More than one command on the same line  [whitespace/newline] [0]")
+        assert 0 == state.Results().count("More than one command on the same line  [whitespace/newline] [0]")
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2847,12 +2406,10 @@ class TestCpplint(CpplintTestBase):
                 "this->ReadLock(); }, [this]() { "
                 "this->ReadUnlock(); }, object);"
             ],
-            error_collector,
         )
-        assert 0 == error_collector.Results().count("More than one command on the same line  [whitespace/newline] [0]")
+        assert 0 == state.Results().count("More than one command on the same line  [whitespace/newline] [0]")
 
     def testEndOfNamespaceComments(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -2891,29 +2448,28 @@ class TestCpplint(CpplintTestBase):
             ]
             + (["\\"] * 10)
             + ["}  /* namespace c_style. */ \\", ";"],
-            error_collector,
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             'Namespace should be terminated with "// namespace expected"' "  [readability/namespace] [5]"
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             'Namespace should be terminated with "// namespace outer"' "  [readability/namespace] [5]"
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             'Namespace should be terminated with "// namespace nested"' "  [readability/namespace] [5]"
         )
-        assert 3 == error_collector.Results().count(
+        assert 3 == state.Results().count(
             'Anonymous namespace should be terminated with "// namespace"' "  [readability/namespace] [5]"
         )
-        assert 2 == error_collector.Results().count(
+        assert 2 == state.Results().count(
             'Anonymous namespace should be terminated with "// namespace" or'
             ' "// anonymous namespace"'
             "  [readability/namespace] [5]"
         )
-        assert 1 == error_collector.Results().count(
+        assert 1 == state.Results().count(
             'Namespace should be terminated with "// namespace missing_comment"' "  [readability/namespace] [5]"
         )
-        assert 0 == error_collector.Results().count(
+        assert 0 == state.Results().count(
             'Namespace should be terminated with "// namespace no_warning"' "  [readability/namespace] [5]"
         )
 
@@ -3006,13 +2562,6 @@ class TestCpplint(CpplintTestBase):
         self.TestSingleLineLint(state, "a%=42;", "")
         self.TestSingleLineLint(state, "a>>=5;", "")
         self.TestSingleLineLint(state, "a<<=5;", "")
-
-    def testShiftOperatorSpacing(self, state: LintState):
-        self.TestSingleLineLint(state, "a<<b", "Missing spaces around <<  [whitespace/operators] [3]")
-        self.TestSingleLineLint(state, "a>>b", "Missing spaces around >>  [whitespace/operators] [3]")
-        self.TestSingleLineLint(state, "1<<20", "")
-        self.TestSingleLineLint(state, "1024>>10", "")
-        self.TestSingleLineLint(state, "Kernel<<<1, 2>>>()", "")
 
     def testIndent(self, state):
         self.TestSingleLineLint(state, "static int noindent;", "")
@@ -3513,10 +3062,10 @@ class TestCpplint(CpplintTestBase):
             filt = "-,+whitespace,-whitespace/indent"
             assert ["foo.h"] == cli.parse_arguments(state, ["--filter=" + filt, "foo.h"])
             assert [
-                "-",
-                "+whitespace",
-                "-whitespace/indent",
-            ] == state.filters
+                       "-",
+                       "+whitespace",
+                       "-whitespace/indent",
+                   ] == state.filters
 
             assert ["foo.cc", "foo.h"] == cli.parse_arguments(state, ["foo.cc", "foo.h"])
 
@@ -3746,26 +3295,6 @@ class TestCpplint(CpplintTestBase):
         cli.parse_arguments(state, ["--quiet", "one.cpp"])
         assert state.quiet is True
 
-    def testLineLength(self, state: LintState):
-        old_line_length = state._line_length
-        try:
-            state._line_length = 80
-            self.TestSingleLineLint(state, "// H %s" % ("H" * 75), "")
-            self.TestSingleLineLint(
-                state,
-                "// H %s" % ("H" * 76),
-                "Lines should be <= 80 characters long" "  [whitespace/line_length] [2]",
-            )
-            state._line_length = 120
-            self.TestSingleLineLint(state, "// H %s" % ("H" * 115), "")
-            self.TestSingleLineLint(
-                state,
-                "// H %s" % ("H" * 116),
-                "Lines should be <= 120 characters long" "  [whitespace/line_length] [2]",
-            )
-        finally:
-            state._line_length = old_line_length
-
     def testFilter(self, state: LintState):
         state.filters = ["-", "+whitespace", "-whitespace/indent"]
         self.TestSingleLineLint(
@@ -3781,7 +3310,6 @@ class TestCpplint(CpplintTestBase):
         assert "-build/include_alpha" in state_with_defaults.filters
 
     def testDuplicateHeader(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "path/self.cc",
@@ -3798,11 +3326,10 @@ class TestCpplint(CpplintTestBase):
                 "#endif",
                 "",
             ],
-            error_collector,
         )
         assert [
-            '"path/duplicate.h" already included at path/self.cc:3  ' "[build/include] [4]"
-        ] == error_collector.ResultList()
+                   '"path/duplicate.h" already included at path/self.cc:3  ' "[build/include] [4]"
+               ] == state.ResultList()
 
     def testUnnamedNamespacesInHeaders(self, state: LintState):
         for extension in ["h", "hpp", "hxx", "h++", "cuh"]:
@@ -3902,9 +3429,8 @@ class TestCpplint(CpplintTestBase):
 
     def GetBuildHeaderGuardPreprocessorSymbol(self, state: LintState, file_path):
         # Figure out the expected header guard by processing an empty file.
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(state, file_path, "h", [], error_collector)
-        for error in error_collector.ResultList():
+        cpplint.ProcessFileData(state, file_path, "h", [])
+        for error in state.ResultList():
             matched = re.search(
                 "No #ifndef header guard found, suggested CPP variable is: " "([A-Z0-9_]+)",
                 error,
@@ -3918,91 +3444,86 @@ class TestCpplint(CpplintTestBase):
         assert re.search("MYDIR_FOO_H_$", expected_guard)
 
         # No guard at all: expect one error.
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(state, file_path, "h", [], error_collector)
-        assert 1 == error_collector.ResultList().count(
+        state.ResetErrorCounts()
+        cpplint.ProcessFileData(state, file_path, "h", [])
+        assert 1 == state.ResultList().count(
             "No #ifndef header guard found, suggested CPP variable is: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
         # No header guard, but the error is suppressed.
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["// Copyright 2014 Your Company.", "// NOLINT(build/header_guard)", ""],
-            error_collector,
         )
-        assert [] == error_collector.ResultList()
+        assert [] == state.ResultList()
+        state.ResetErrorCounts()
 
         # Wrong guard
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(state, file_path, "h", ["#ifndef FOO_H", "#define FOO_H"], error_collector)
-        assert 1 == error_collector.ResultList().count(
+        cpplint.ProcessFileData(state, file_path, "h", ["#ifndef FOO_H", "#define FOO_H"])
+        assert 1 == state.ResultList().count(
             "#ifndef header guard has wrong style, please use: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
         # No define
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(state, file_path, "h", ["#ifndef %s" % expected_guard], error_collector)
-        assert 1 == error_collector.ResultList().count(
+        cpplint.ProcessFileData(state, file_path, "h", ["#ifndef %s" % expected_guard])
+        assert 1 == state.ResultList().count(
             "No #ifndef header guard found, suggested CPP variable is: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
         # Mismatched define
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["#ifndef %s" % expected_guard, "#define FOO_H"],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             "No #ifndef header guard found, suggested CPP variable is: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
         # No endif
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["#ifndef %s" % expected_guard, "#define %s" % expected_guard, ""],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             '#endif line should be "#endif  // %s"' "  [build/header_guard] [5]" % expected_guard
         ), error_collector.ResultList()
+        state.ResetErrorCounts()
 
         # Commentless endif
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["#ifndef %s" % expected_guard, "#define %s" % expected_guard, "#endif"],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             '#endif line should be "#endif  // %s"' "  [build/header_guard] [5]" % expected_guard
         ), error_collector.ResultList()
+        state.ResetErrorCounts()
 
         # Commentless endif for old-style guard
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["#ifndef %s_" % expected_guard, "#define %s_" % expected_guard, "#endif"],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             '#endif line should be "#endif  // %s"' "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
         # No header guard errors
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
@@ -4012,14 +3533,13 @@ class TestCpplint(CpplintTestBase):
                 "#define %s" % expected_guard,
                 "#endif  // %s" % expected_guard,
             ],
-            error_collector,
         )
-        for line in error_collector.ResultList():
+        for line in state.ResultList():
             if line.find("build/header_guard") != -1:
-                self.fail("Unexpected error: %s" % line)
+                assert False, "Unexpected error: %s" % line
+        state.ResetErrorCounts()
 
         # No header guard errors for old-style guard
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
@@ -4029,17 +3549,16 @@ class TestCpplint(CpplintTestBase):
                 "#define %s_" % expected_guard,
                 "#endif  // %s_" % expected_guard,
             ],
-            error_collector,
         )
-        for line in error_collector.ResultList():
+        for line in state.ResultList():
             if line.find("build/header_guard") != -1:
-                self.fail("Unexpected error: %s" % line)
+                assert False, "Unexpected error: %s" % line
+        state.ResetErrorCounts()
 
         old_verbose_level = state.verbose_level
         try:
             state.verbose_level = 0
             # Warn on old-style guard if verbosity is 0.
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 file_path,
@@ -4049,90 +3568,77 @@ class TestCpplint(CpplintTestBase):
                     "#define %s_" % expected_guard,
                     "#endif  // %s_" % expected_guard,
                 ],
-                error_collector,
             )
-            assert 1 == error_collector.ResultList().count(
+            assert 1 == state.ResultList().count(
                 "#ifndef header guard has wrong style, please use: %s" "  [build/header_guard] [0]" % expected_guard
-            ), error_collector.ResultList()
+            ), state.ResultList()
         finally:
             state.verbose_level = old_verbose_level
+        state.ResetErrorCounts()
 
         # Completely incorrect header guard
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["#ifndef FOO", "#define FOO", "#endif  // FOO"],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             "#ifndef header guard has wrong style, please use: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
-        assert 1 == error_collector.ResultList().count(
+        ), state.ResultList()
+        assert 1 == state.ResultList().count(
             '#endif line should be "#endif  // %s"' "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
         # incorrect header guard with nolint
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "h",
             ["#ifndef FOO  // NOLINT", "#define FOO", "#endif  // FOO NOLINT"],
-            error_collector,
         )
-        assert 0 == error_collector.ResultList().count(
+        assert 0 == state.ResultList().count(
             "#ifndef header guard has wrong style, please use: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
 
-        assert 0 == error_collector.ResultList().count(
+        assert 0 == state.ResultList().count(
             '#endif line should be "#endif  // %s"' "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
 
         # Special case for flymake
         for test_file in ["mydir/foo_flymake.h", "mydir/.flymake/foo.h"]:
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 test_file,
                 "h",
                 ["// Copyright 2014 Your Company.", ""],
-                error_collector,
             )
-            assert 1 == error_collector.ResultList().count(
+            assert 1 == state.ResultList().count(
                 "No #ifndef header guard found, suggested CPP variable is: %s"
                 "  [build/header_guard] [5]" % expected_guard
-            ), error_collector.ResultList()
+            ), state.ResultList()
+            state.ResetErrorCounts()
 
         # Cuda guard
         file_path = "mydir/foo.cuh"
         expected_guard = self.GetBuildHeaderGuardPreprocessorSymbol(state, file_path)
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "cuh",
             ["#ifndef FOO", "#define FOO", "#endif  // FOO"],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(
+        assert 1 == state.ResultList().count(
             "#ifndef header guard has wrong style, please use: %s" "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
-        assert 1 == error_collector.ResultList().count(
+        ), state.ResultList()
+        assert 1 == state.ResultList().count(
             '#endif line should be "#endif  // %s"' "  [build/header_guard] [5]" % expected_guard
-        ), error_collector.ResultList()
+        ), state.ResultList()
+        state.ResetErrorCounts()
 
-    def testPragmaOnce(self, state):
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(
-            state,
-            "mydir/foo.h",
-            "h",
-            ["// Copyright 2014 Your Company.", "#pragma once", ""],
-            error_collector,
-        )
-        assert [] == error_collector.ResultList()
+    def test_pragma_once(self, state):
+        self.lint_file(state, "pragma_once.h", "")
 
     def testBuildHeaderGuardWithRoot(self, state):
         temp_directory = os.path.realpath(tempfile.mkdtemp())
@@ -4246,32 +3752,29 @@ class TestCpplint(CpplintTestBase):
 
             os.chdir(temp_directory)
 
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(state, "test/foo.cc", "cc", [""], error_collector)
+            cpplint.ProcessFileData(state, "test/foo.cc", "cc", [""])
             expected = "{dir}/{fn}.cc should include its header file {dir}/{fn}.h  [build/include] [5]".format(
                 fn="foo", dir=test_directory
             )
-            assert 1 == error_collector.Results().count(expected)
+            assert 1 == state.Results().count(expected)
+            state.ResetErrorCounts()
 
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 "test/foo.cc",
                 "cc",
                 [r'#include "test/foo.h"', ""],
-                error_collector,
             )
-            assert 0 == error_collector.Results().count(expected)
+            assert 0 == state.Results().count(expected)
+            state.ResetErrorCounts()
 
             # Unix directory aliases are not allowed, and should trigger the
             # "include itse header file" error
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 "test/foo.cc",
                 "cc",
                 [r'#include "./test/foo.h"', ""],
-                error_collector,
             )
             expected = (
                 "{dir}/{fn}.cc should include its header file {dir}/{fn}.h{unix_text}  [build/include] [5]".format(
@@ -4280,26 +3783,26 @@ class TestCpplint(CpplintTestBase):
                     unix_text=". Relative paths like . and .. are not allowed.",
                 )
             )
-            assert 1 == error_collector.Results().count(expected)
+            assert 1 == state.Results().count(expected)
+            state.ResetErrorCounts()
 
             # This should continue to work
-            error_collector = ErrorCollector()
             cpplint.ProcessFileData(
                 state,
                 "test/Bar.cc",
                 "cc",
                 [r'#include "test/Bar.h"', ""],
-                error_collector,
             )
             expected = "{dir}/{fn}.cc should include its header file {dir}/{fn}.h  [build/include] [5]".format(
                 fn="Bar", dir=test_directory
             )
-            assert 0 == error_collector.Results().count(expected)
+            assert 0 == state.Results().count(expected)
+            state.ResetErrorCounts()
 
             # Since Bar.cc & Bar.h look 3rd party-ish, it should be ok without the include dir
-            error_collector = ErrorCollector()
-            cpplint.ProcessFileData(state, "test/Bar.cc", "cc", [r'#include "Bar.h"', ""], error_collector)
-            assert 0 == error_collector.Results().count(expected)
+            cpplint.ProcessFileData(state, "test/Bar.cc", "cc", [r'#include "Bar.h"', ""])
+            assert 0 == state.Results().count(expected)
+            state.ResetErrorCounts()
 
         finally:
             # Restore previous CWD.
@@ -4375,7 +3878,6 @@ class TestCpplint(CpplintTestBase):
         self.TestLanguageRulesCheck(state, "foo.h", code, "")
 
     def testBuildPrintfFormat(self, state):
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -4386,13 +3888,12 @@ class TestCpplint(CpplintTestBase):
                 r'fprintf(file, "\(%d", value);',
                 r'vsnprintf(buffer, sizeof(buffer), "\\\{%d", ap);',
             ],
-            error_collector,
         )
-        assert 4 == error_collector.Results().count(
+        assert 4 == state.Results().count(
             "%, [, (, and { are undefined character escapes.  Unescape them." "  [build/printf_format] [3]"
         )
+        state.ResetErrorCounts()
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             "foo.cc",
@@ -4404,9 +3905,9 @@ class TestCpplint(CpplintTestBase):
                 r'printf(R"(\[%s)", R"(\])");',
                 "",
             ],
-            error_collector,
         )
-        assert "" == error_collector.Results()
+        assert "" == state.Results()
+        state.ResetErrorCounts()
 
     def testRuntimePrintfFormat(self, state):
         self.TestSingleLineLint(
@@ -4449,7 +3950,8 @@ class TestCpplint(CpplintTestBase):
         # Special TestSingleLineLint which logs the input code on error.
         result = self.PerformSingleLineLint(state, code)
         if result != expected_message:
-            self.fail('For code: "%s"\nGot: "%s"\nExpected: "%s"' % (code, result, expected_message))
+            assert False, 'For code: "%s"\nGot: "%s"\nExpected: "%s"' % (code, result, expected_message)
+        state.ResetErrorCounts()
 
     def testBuildStorageClass(self, state: LintState):
         qualifiers = [None, "const", "volatile"]
@@ -4516,7 +4018,6 @@ class TestCpplint(CpplintTestBase):
             decl_specs = other_decl_specs[0:insertion_point] + [storage_class] + other_decl_specs[insertion_point:]
 
             self.TestSingleLineLintLogCodeOnError(state, " ".join(decl_specs) + ";", build_storage_class_error_message)
-
             # but no error if storage class is first
             self.TestSingleLineLintLogCodeOnError(state, storage_class + " " + " ".join(other_decl_specs), "")
 
@@ -4532,38 +4033,36 @@ class TestCpplint(CpplintTestBase):
         file_path = "mydir/googleclient/foo.cc"
 
         # There should be a copyright message in the first 10 lines
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(state, file_path, "cc", [], error_collector)
-        assert 1 == error_collector.ResultList().count(legal_copyright_message)
+        cpplint.ProcessFileData(state, file_path, "cc", [])
+        assert 1 == state.ResultList().count(legal_copyright_message)
+        state.ResetErrorCounts()
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "cc",
             ["" for unused_i in range(10)] + [copyright_line],
-            error_collector,
         )
-        assert 1 == error_collector.ResultList().count(legal_copyright_message)
+        assert 1 == state.ResultList().count(legal_copyright_message)
+        state.ResetErrorCounts()
 
         # Test that warning isn't issued if Copyright line appears early enough.
-        error_collector = ErrorCollector()
-        cpplint.ProcessFileData(state, file_path, "cc", [copyright_line], error_collector)
-        for message in error_collector.ResultList():
+        cpplint.ProcessFileData(state, file_path, "cc", [copyright_line])
+        for message in state.ResultList():
             if message.find("legal/copyright") != -1:
-                self.fail("Unexpected error: %s" % message)
+                assert False, "Unexpected error: %s" % message
+        state.ResetErrorCounts()
 
-        error_collector = ErrorCollector()
         cpplint.ProcessFileData(
             state,
             file_path,
             "cc",
             ["" for unused_i in range(9)] + [copyright_line],
-            error_collector,
         )
-        for message in error_collector.ResultList():
+        for message in state.ResultList():
             if message.find("legal/copyright") != -1:
-                self.fail("Unexpected error: %s" % message)
+                assert False, "Unexpected error: %s" % message
+        state.ResetErrorCounts()
 
     def testInvalidIncrement(self, state: LintState):
         self.TestSingleLineLint(

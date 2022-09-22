@@ -15,71 +15,66 @@ from .block_info import (
 from .categories import _ERROR_CATEGORIES
 from .check_language import CheckLanguage
 from .check_style import CheckStyle
+from .cleansed_lines import CleansedLines
 from .lintstate import LintState
 from .regex import Match, ReplaceAll, Search
 
 
 def ProcessLine(
     state: LintState,
-    filename,
     file_extension,
     clean_lines,
-    line,
+    line_num,
     include_state,
     function_state,
     nesting_state,
-    error,
     extra_check_functions=None,
 ):
     """Processes a single line in the file.
 
     Args:
       state: The current state of the linting
-      filename: Filename of the file that is being processed.
       file_extension: The extension (dot not included) of the file.
       clean_lines: An array of strings, each representing a line of the file,
                    with comments stripped.
-      line: Number of line being processed.
+      line_num: Number of line being processed.
       include_state: An IncludeState instance in which the headers are inserted.
       function_state: A FunctionState instance which counts function lines, etc.
       nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
-      error: A callable to which errors are reported, which takes 4 arguments:
-             file_name, line number, error level, and message
       extra_check_functions: An array of additional check functions that will be
                              run on each source line. Each function takes 4
                              arguments: file_name, clean_lines, line, error
     """
     raw_lines = clean_lines.raw_lines
-    ParseNolintSuppressions(state, filename, raw_lines[line], line, error)
-    nesting_state.update(state, clean_lines, line, error)
-    CheckForNamespaceIndentation(state, filename, nesting_state, clean_lines, line, error)
+    file_name = clean_lines.file_name
+    ParseNolintSuppressions(state, file_name, raw_lines[line_num], line_num)
+    nesting_state.update(state, clean_lines, line_num)
+    CheckForNamespaceIndentation(state, file_name, nesting_state, clean_lines, line_num)
     if nesting_state.is_asm_block():
         return
-    CheckForFunctionLengths(state, filename, clean_lines, line, function_state, error)
-    CheckForMultilineCommentsAndStrings(state, filename, clean_lines, line, error)
-    CheckStyle(state, filename, clean_lines, line, file_extension, nesting_state, error)
+    CheckForFunctionLengths(state, clean_lines, line_num, function_state)
+    CheckForMultilineCommentsAndStrings(state, clean_lines, line_num)
+    CheckStyle(state, clean_lines, line_num, nesting_state)
     CheckLanguage(
         state,
-        filename,
         clean_lines,
-        line,
+        line_num,
         file_extension,
         include_state,
         nesting_state,
-        error,
     )
-    CheckForNonConstReference(state, filename, clean_lines, line, nesting_state, error)
-    CheckForNonStandardConstructs(state, filename, clean_lines, line, nesting_state, error)
-    CheckVlogArguments(state, filename, clean_lines, line, error)
-    CheckPosixThreading(state, filename, clean_lines, line, error)
-    CheckInvalidIncrement(state, filename, clean_lines, line, error)
-    CheckMakePairUsesDeduction(state, filename, clean_lines, line, error)
-    CheckRedundantVirtual(state, filename, clean_lines, line, error)
-    CheckRedundantOverrideOrFinal(state, filename, clean_lines, line, error)
+    CheckForNonConstReference(state, clean_lines, line_num, nesting_state)
+    CheckForNonStandardConstructs(state, clean_lines, line_num, nesting_state)
+    CheckVlogArguments(state, clean_lines, line_num)
+    CheckPosixThreading(state, clean_lines, line_num)
+    CheckInvalidIncrement(state, clean_lines, line_num)
+    CheckMakePairUsesDeduction(state, clean_lines, line_num)
+    CheckRedundantVirtual(state, clean_lines, line_num)
+    CheckRedundantOverrideOrFinal(state, clean_lines, line_num)
     if extra_check_functions:
         for check_fn in extra_check_functions:
-            check_fn(filename, clean_lines, line, error)
+            check_fn(file_name, clean_lines, line_num)
 
 
 # These error categories are no longer enforced by cpplint, but for backwards-
@@ -96,7 +91,7 @@ _OTHER_NOLINT_CATEGORY_PREFIXES = [
 ]
 
 
-def ParseNolintSuppressions(state: LintState, filename, raw_line, linenum, error):
+def ParseNolintSuppressions(state: LintState, filename, raw_line, line_num):
     """Updates the global list of line error-suppressions.
 
     Parses any NOLINT comments on the current line, updating the global
@@ -104,17 +99,17 @@ def ParseNolintSuppressions(state: LintState, filename, raw_line, linenum, error
     was malformed.
 
     Args:
-      filename: str, the name of the input file.
-      raw_line: str, the line of input text, with comments.
-      linenum: int, the number of the current line.
-      error: function, an error handler.
+        state: the current state of the linting process.
+        filename: str, the name of the input file.
+        raw_line: str, the line of input text, with comments.
+        line_num: int, the number of the current line.
     """
     matched = Search(r"\bNOLINT(NEXTLINE)?\b(\([^)]+\))?", raw_line)
     if matched:
         if matched.group(1):
-            suppressed_line = linenum + 1
+            suppressed_line = line_num + 1
         else:
-            suppressed_line = linenum
+            suppressed_line = line_num
         category = matched.group(2)
         if category in (None, "(*)"):  # => "suppress all"
             state._error_suppressions.setdefault(None, set()).add(suppressed_line)
@@ -127,17 +122,16 @@ def ParseNolintSuppressions(state: LintState, filename, raw_line, linenum, error
                     # Ignore any categories from other tools.
                     pass
                 elif category not in _LEGACY_ERROR_CATEGORIES:
-                    error(
-                        state,
+                    state.log_error(
                         filename,
-                        linenum,
+                        line_num,
                         "readability/nolint",
                         5,
                         "Unknown NOLINT error category: %s" % category,
                     )
 
 
-def CheckForNamespaceIndentation(state, filename, nesting_state, clean_lines, line, error):
+def CheckForNamespaceIndentation(state, filename, nesting_state, clean_lines, line_num):
     is_namespace_indent_item = (
         len(nesting_state.stack) > 1
         and nesting_state.stack[-1].check_namespace_indentation
@@ -145,11 +139,11 @@ def CheckForNamespaceIndentation(state, filename, nesting_state, clean_lines, li
         and nesting_state.previous_stack_top == nesting_state.stack[-2]
     )
 
-    if ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item, clean_lines.elided, line):
-        CheckItemIndentationInNamespace(state, filename, clean_lines.elided, line, error)
+    if ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item, clean_lines.elided, line_num):
+        CheckItemIndentationInNamespace(state, filename, clean_lines.elided, line_num)
 
 
-def ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item, raw_lines_no_comments, linenum):
+def ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item, raw_lines_no_comments, line_num):
     """This method determines if we should apply our namespace indentation check.
 
     Args:
@@ -158,20 +152,20 @@ def ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item, raw
         If the top of the stack is not a class, or we did not recently
         add the class, False.
       raw_lines_no_comments: The lines without the comments.
-      linenum: The current line number we are processing.
+      line_num: The current line number we are processing.
 
     Returns:
       True if we should apply our namespace indentation check. Currently, it
       only works for classes and namespaces inside of a namespace.
     """
 
-    is_forward_declaration = IsForwardClassDeclaration(raw_lines_no_comments, linenum)
+    is_forward_declaration = IsForwardClassDeclaration(raw_lines_no_comments, line_num)
 
     if not (is_namespace_indent_item or is_forward_declaration):
         return False
 
     # If we are in a macro, we do not want to check the namespace indentation.
-    if IsMacroDefinition(raw_lines_no_comments, linenum):
+    if IsMacroDefinition(raw_lines_no_comments, line_num):
         return False
 
     return IsBlockInNameSpace(nesting_state, is_forward_declaration)
@@ -180,20 +174,19 @@ def ShouldCheckNamespaceIndentation(nesting_state, is_namespace_indent_item, raw
 # Call this method if the line is directly inside of a namespace.
 # If the line above is blank (excluding comments) or the start of
 # an inner namespace, it cannot be indented.
-def CheckItemIndentationInNamespace(state, filename, raw_lines_no_comments, linenum, error):
-    line = raw_lines_no_comments[linenum]
+def CheckItemIndentationInNamespace(state, filename, raw_lines_no_comments, line_num):
+    line = raw_lines_no_comments[line_num]
     if Match(r"^\s+", line):
-        error(
-            state,
+        state.log_error(
             filename,
-            linenum,
+            line_num,
             "runtime/indentation_namespace",
             4,
             "Do not indent within a namespace",
         )
 
 
-def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, function_state, error):
+def CheckForFunctionLengths(state: LintState, clean_lines, line_num, function_state):
     """Reports for int function bodies.
 
     For an overview why this is done, see:
@@ -209,14 +202,14 @@ def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, fu
     NOLINT *on the last line of a function* disables this check.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      function_state: Current function name and lines in body so far.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        filename: The name of the current file.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
+        function_state: Current function name and lines in body so far.
     """
     lines = clean_lines.lines
-    line = lines[linenum]
+    line = lines[line_num]
     joined_line = ""
 
     starting_func = False
@@ -231,8 +224,8 @@ def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, fu
 
     if starting_func:
         body_found = False
-        for start_linenum in range(linenum, clean_lines.num_lines()):
-            start_line = lines[start_linenum]
+        for start_line_num in range(line_num, clean_lines.num_lines()):
+            start_line = lines[start_line_num]
             joined_line += " " + start_line.lstrip()
             if Search(r"(;|})", start_line):  # Declarations and trivial functions
                 body_found = True
@@ -250,22 +243,21 @@ def CheckForFunctionLengths(state: LintState, filename, clean_lines, linenum, fu
                 break
         if not body_found:
             # No body for the function (or evidence of a non-function) was found.
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "readability/fn_size",
                 5,
                 "Lint failed to find start of function body.",
             )
     elif Match(r"^\}\s*$", line):  # function end
-        function_state.check(state, error, filename, linenum)
+        function_state.check(state, clean_lines.file_name, line_num)
         function_state.end()
     elif not Match(r"^\s*$", line):
         function_state.count()  # Count non-blank/non-comment lines.
 
 
-def CheckForMultilineCommentsAndStrings(state, filename, clean_lines, linenum, error):
+def CheckForMultilineCommentsAndStrings(state: LintState, clean_lines: CleansedLines, line_num: int):
     """Logs an error if we see /* ... */ or "..." that extend past one line.
 
     /* ... */ comments are legit inside macros, for one line.
@@ -277,22 +269,20 @@ def CheckForMultilineCommentsAndStrings(state, filename, clean_lines, linenum, e
     in this lint program, so we warn about both.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
-
+    line = clean_lines.elided[line_num]
+    file_name = clean_lines.file_name
     # Remove all \\ (escaped backslashes) from the line. They are OK, and the
     # second (escaped) slash may trigger later \" detection erroneously.
     line = line.replace("\\\\", "")
 
     if line.count("/*") > line.count("*/"):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "readability/multiline_comment",
             5,
             "Complex multi-line /*...*/-style comment found. "
@@ -303,10 +293,9 @@ def CheckForMultilineCommentsAndStrings(state, filename, clean_lines, linenum, e
         )
 
     if (line.count('"') - line.count('\\"')) % 2:
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "readability/multiline_string",
             5,
             'Multi-line string ("...") found.  This lint script doesn\'t '
@@ -315,34 +304,34 @@ def CheckForMultilineCommentsAndStrings(state, filename, clean_lines, linenum, e
         )
 
 
-def CheckForNonConstReference(state, filename, clean_lines, linenum, nesting_state, error):
+def CheckForNonConstReference(state, clean_lines, line_num, nesting_state):
     """Check for non-const references.
 
     Separate from CheckLanguage since it scans backwards from current
     line, instead of scanning forward.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      nesting_state: A NestingState instance which maintains information about
-                     the current stack of nested blocks being parsed.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
+        nesting_state: A NestingState instance which maintains information about
+            the current stack of nested blocks being parsed.
     """
+    file_name = clean_lines.file_name
     # Do nothing if there is no '&' on current line.
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     if "&" not in line:
         return
 
     # If a function is inherited, current function doesn't have much of
     # a choice, so any non-const references should not be blamed on
     # derived function.
-    if IsDerivedFunction(clean_lines, linenum):
+    if IsDerivedFunction(clean_lines, line_num):
         return
 
     # Don't warn on out-of-line method definitions, as we would warn on the
     # in-line declaration, if it isn't marked with 'override'.
-    if IsOutOfLineMethodDefinition(clean_lines, linenum):
+    if IsOutOfLineMethodDefinition(clean_lines, line_num):
         return
 
     # int type names may be broken across multiple lines, usually in one
@@ -361,32 +350,32 @@ def CheckForNonConstReference(state, filename, clean_lines, linenum, nesting_sta
     # Note that this only scans back one line, since scanning back
     # arbitrary number of lines would be expensive.  If you have a type
     # that spans more than 2 lines, please use a typedef.
-    if linenum > 1:
+    if line_num > 1:
         previous = None
         if Match(r"\s*::(?:[\w<>]|::)+\s*&\s*\S", line):
             # previous_line\n + ::current_line
             previous = Search(
                 r"\b((?:const\s*)?(?:[\w<>]|::)+[\w<>])\s*$",
-                clean_lines.elided[linenum - 1],
+                clean_lines.elided[line_num - 1],
             )
         elif Match(r"\s*[a-zA-Z_]([\w<>]|::)+\s*&\s*\S", line):
             # previous_line::\n + current_line
             previous = Search(
                 r"\b((?:const\s*)?(?:[\w<>]|::)+::)\s*$",
-                clean_lines.elided[linenum - 1],
+                clean_lines.elided[line_num - 1],
             )
         if previous:
             line = previous.group(1) + line.lstrip()
         else:
             # Check for templated parameter that is split across multiple lines
-            endpos = line.rfind(">")
-            if endpos > -1:
-                (_, startline, startpos) = ReverseCloseExpression(clean_lines, linenum, endpos)
-                if startpos > -1 and startline < linenum:
+            end_position = line.rfind(">")
+            if end_position > -1:
+                (_, start_line, start_position) = ReverseCloseExpression(clean_lines, line_num, end_position)
+                if start_position > -1 and start_line < line_num:
                     # Found the matching < on an earlier line, collect all
                     # pieces up to current line.
                     line = ""
-                    for i in range(startline, linenum + 1):
+                    for i in range(start_line, line_num + 1):
                         line += clean_lines.elided[i].strip()
 
     # Check for non-const references in function parameters.  A single '&' may
@@ -410,8 +399,8 @@ def CheckForNonConstReference(state, filename, clean_lines, linenum, nesting_sta
     # We don't need to check the current line, since the '&' would
     # appear inside the second set of parentheses on the current line as
     # opposed to the first set.
-    if linenum > 0:
-        for i in range(linenum - 1, max(0, linenum - 10), -1):
+    if line_num > 0:
+        for i in range(line_num - 1, max(0, line_num - 10), -1):
             previous_line = clean_lines.elided[i]
             if not Search(r"[),]\s*$", previous_line):
                 break
@@ -423,7 +412,7 @@ def CheckForNonConstReference(state, filename, clean_lines, linenum, nesting_sta
         return
 
     # Avoid constructor initializer lists
-    if IsInitializerList(clean_lines, linenum):
+    if IsInitializerList(clean_lines, line_num):
         return
 
     # We allow non-const references in a few standard places, like functions
@@ -440,7 +429,7 @@ def CheckForNonConstReference(state, filename, clean_lines, linenum, nesting_sta
         # didn't see any function name on this line, so this is likely a
         # multi-line parameter list.  Try a bit harder to catch this case.
         for i in range(2):
-            if linenum > i and Search(allowed_functions, clean_lines.elided[linenum - i - 1]):
+            if line_num > i and Search(allowed_functions, clean_lines.elided[line_num - i - 1]):
                 return
 
     # Patterns for matching call-by-reference parameters.
@@ -480,18 +469,18 @@ def CheckForNonConstReference(state, filename, clean_lines, linenum, nesting_sta
     decls = ReplaceAll(r"{[^}]*}", " ", line)  # exclude function body
     for parameter in re.findall(_RE_PATTERN_REF_PARAM, decls):
         if not Match(_RE_PATTERN_CONST_REF_PARAM, parameter) and not Match(_RE_PATTERN_REF_STREAM_PARAM, parameter):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                file_name,
+                line_num,
                 "runtime/references",
                 2,
-                "Is this a non-const reference? "
-                "If so, make const or use a pointer: " + ReplaceAll(" *<", "<", parameter),
+                "Is this a non-const reference? If so, make const or use a pointer: " +
+                ReplaceAll(" *<", "<", parameter),
             )
 
 
-def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting_state, error):
+# TODO: This check needs breaking into littler checks!
+def CheckForNonStandardConstructs(state, clean_lines, line_num, nesting_state):
     r"""Logs an error if we see certain non-ANSI constructs ignored by gcc-2.
 
     Complain about several constructs which gcc-2 accepts, but which are
@@ -510,33 +499,29 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
     gcc-2 compliance.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      nesting_state: A NestingState instance which maintains information about
+        state: The current state of the linting process
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
+        nesting_state: A NestingState instance which maintains information about
                      the current stack of nested blocks being parsed.
-      error: A callable to which errors are reported, which takes 4 arguments:
-             file_name, line number, error level, and message
     """
 
     # Remove comments from the line, but leave in strings for now.
-    line = clean_lines.lines[linenum]
-
+    line = clean_lines.lines[line_num]
+    file_name = clean_lines.file_name
     if Search(r'printf\s*\(.*".*%[-+ ]?\d*q', line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "runtime/printf_format",
             3,
             "%q in format strings is deprecated.  Use %ll instead.",
         )
 
     if Search(r'printf\s*\(.*".*%\d+\$', line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "runtime/printf_format",
             2,
             "%N$ formats are unconventional.  Try rewriting to avoid them.",
@@ -546,17 +531,16 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
     line = line.replace("\\\\", "")
 
     if Search(r'("|\').*\\(%|\[|\(|{)', line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/printf_format",
             3,
             "%, [, (, and { are undefined character escapes.  Unescape them.",
         )
 
     # For the rest, work with both comments and strings removed.
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
 
     if Search(
         r"\b(const|volatile|void|char|short|int|int"
@@ -565,40 +549,36 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
         r"\s+(register|static|extern|typedef)\b",
         line,
     ):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/storage_class",
             5,
             "Storage-class specifier (static, extern, typedef, etc) should be " "at the beginning of the declaration.",
         )
 
     if Match(r"\s*#\s*endif\s*[^/\s]+", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/endif_comment",
             5,
             "Uncommented text after #endif is non-standard.  Use a comment.",
         )
 
     if Match(r"\s*class\s+(\w+\s*::\s*)+\w+\s*;", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/forward_decl",
             5,
             "Inner-style forward declarations are invalid.  Remove this line.",
         )
 
     if Search(r"(\w+|[+-]?\d+(\.\d*)?)\s*(<|>)\?=?\s*(\w+|[+-]?\d+)(\.\d*)?", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "build/deprecated",
             3,
             ">? and <? (max and min) operators are non-standard and deprecated.",
@@ -612,10 +592,9 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
         # Here's the original regexp, for the reference:
         # type_name = r'\w+((\s*::\s*\w+)|(\s*<\s*\w+?\s*>))?'
         # r'\s*const\s*' + type_name + '\s*&\s*\w+\s*;'
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            file_name,
+            line_num,
             "runtime/member_string_references",
             2,
             "const string& members are dangerous. It is much better to use "
@@ -696,60 +675,55 @@ def CheckForNonStandardConstructs(state, filename, clean_lines, linenum, nesting
 
         if not is_marked_explicit and onearg_constructor and not initializer_list_constructor and not copy_constructor:
             if defaulted_args or variadic_args:
-                error(
-                    state,
-                    filename,
-                    linenum,
+                state.log_error(
+                    file_name,
+                    line_num,
                     "runtime/explicit",
                     5,
                     "Constructors callable with one argument " "should be marked explicit.",
                 )
             else:
-                error(
-                    state,
-                    filename,
-                    linenum,
+                state.log_error(
+                    file_name,
+                    line_num,
                     "runtime/explicit",
                     5,
                     "Single-parameter constructors should be marked explicit.",
                 )
         elif is_marked_explicit and not onearg_constructor:
             if noarg_constructor:
-                error(
-                    state,
-                    filename,
-                    linenum,
+                state.log_error(
+                    file_name,
+                    line_num,
                     "runtime/explicit",
                     5,
                     "Zero-parameter constructors should not be marked explicit.",
                 )
 
 
-def CheckVlogArguments(state, filename, clean_lines, linenum, error):
+def CheckVlogArguments(state, clean_lines, line_num):
     """Checks that VLOG() is only used for defining a logging level.
 
     For example, VLOG(2) is correct. VLOG(INFO), VLOG(WARNING), VLOG(ERROR), and
     VLOG(FATAL) are not.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     if Search(r"\bVLOG\((INFO|ERROR|WARNING|DFATAL|FATAL)\)", line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/vlog",
             5,
             "VLOG() should be used with numeric verbosity level.  " "Use LOG() if you want symbolic severity levels.",
         )
 
 
-def CheckPosixThreading(state, filename, clean_lines, linenum, error):
+def CheckPosixThreading(state, clean_lines, line_num):
     """Checks for calls to thread-unsafe functions.
 
     Much code has been originally written without consideration of
@@ -759,10 +733,9 @@ def CheckPosixThreading(state, filename, clean_lines, linenum, error):
     posix directly).
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: the current state of the linting process
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
 
     # (non-threadsafe name, thread-safe alternative, validation pattern)
@@ -793,15 +766,14 @@ def CheckPosixThreading(state, filename, clean_lines, linenum, error):
         ("ttyname(", "ttyname_r(", _UNSAFE_FUNC_PREFIX + r"ttyname\([^)]+\)"),
     )
 
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     for single_thread_func, multithread_safe_func, pattern in _THREADING_LIST:
         # Additional pattern matching check to confirm that this is the
         # function we are looking for
         if Search(pattern, line):
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "runtime/threadsafe_fn",
                 2,
                 "Consider using "
@@ -812,7 +784,7 @@ def CheckPosixThreading(state, filename, clean_lines, linenum, error):
             )
 
 
-def CheckInvalidIncrement(state, filename, clean_lines, linenum, error):
+def CheckInvalidIncrement(state, clean_lines, line_num):
     """Checks for invalid increment *count++.
 
     For example following function:
@@ -823,50 +795,46 @@ def CheckInvalidIncrement(state, filename, clean_lines, linenum, error):
     be replaced with ++*count, (*count)++ or *count += 1.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
 
     # Matches invalid increment: *count++, which moves pointer instead of
     # incrementing a value.
     _RE_PATTERN_INVALID_INCREMENT = re.compile(r"^\s*\*\w+(\+\+|--);")
 
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     if _RE_PATTERN_INVALID_INCREMENT.match(line):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "runtime/invalid_increment",
             5,
             "Changing pointer instead of value (or unused value of operator*).",
         )
 
 
-def CheckMakePairUsesDeduction(state, filename, clean_lines, linenum, error):
+def CheckMakePairUsesDeduction(state, clean_lines, line_num):
     """Check that make_pair's template arguments are deduced.
 
     G++ 4.6 in C++11 mode fails badly if make_pair's template arguments are
     specified explicitly, and such use isn't intended in any case.
 
     Args:
-      filename: The name of the current file.
+      state: The current state of the linting process.
       clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+      line_num: The number of the line to check.
     """
 
     _RE_PATTERN_EXPLICIT_MAKEPAIR = re.compile(r"\bmake_pair\s*<")
 
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     match = _RE_PATTERN_EXPLICIT_MAKEPAIR.search(line)
     if match:
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "build/explicit_make_pair",
             4,  # 4 = high confidence
             "For C++11-compatibility, omit template arguments from make_pair"
@@ -874,17 +842,16 @@ def CheckMakePairUsesDeduction(state, filename, clean_lines, linenum, error):
         )
 
 
-def CheckRedundantVirtual(state, filename, clean_lines, linenum, error):
+def CheckRedundantVirtual(state, clean_lines, line_num):
     """Check if line contains a redundant "virtual" function-specifier.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: the current state of the linting process
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
     # Look for "virtual" on current line.
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     virtual = Match(r"^(.*)(\bvirtual\b)(.*)$", line)
     if not virtual:
         return
@@ -911,7 +878,7 @@ def CheckRedundantVirtual(state, filename, clean_lines, linenum, error):
     end_col = -1
     end_line = -1
     start_col = len(virtual.group(2))
-    for start_line in range(linenum, min(linenum + 3, clean_lines.num_lines())):
+    for start_line in range(line_num, min(line_num + 3, clean_lines.num_lines())):
         line = clean_lines.elided[start_line][start_col:]
         parameter_list = Match(r"^([^(]*)\(", line)
         if parameter_list:
@@ -929,10 +896,9 @@ def CheckRedundantVirtual(state, filename, clean_lines, linenum, error):
         line = clean_lines.elided[i][end_col:]
         match = Search(r"\b(override|final)\b", line)
         if match:
-            error(
-                state,
-                filename,
-                linenum,
+            state.log_error(
+                clean_lines.file_name,
+                line_num,
                 "readability/inheritance",
                 4,
                 ('"virtual" is redundant since function is ' 'already declared as "%s"' % match.group(1)),
@@ -945,35 +911,33 @@ def CheckRedundantVirtual(state, filename, clean_lines, linenum, error):
             break
 
 
-def CheckRedundantOverrideOrFinal(state, filename, clean_lines, linenum, error):
+def CheckRedundantOverrideOrFinal(state, clean_lines, line_num):
     """Check if line contains a redundant "override" or "final" virt-specifier.
 
     Args:
-      filename: The name of the current file.
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: The number of the line to check.
-      error: The function to call with any errors found.
+        state: The current state of the linting process.
+        clean_lines: A CleansedLines instance containing the file.
+        line_num: The number of the line to check.
     """
     # Look for closing parenthesis nearby.  We need one to confirm where
     # the declarator ends and where the virt-specifier starts to avoid
     # false positives.
-    line = clean_lines.elided[linenum]
+    line = clean_lines.elided[line_num]
     declarator_end = line.rfind(")")
     if declarator_end >= 0:
         fragment = line[declarator_end:]
     else:
-        if linenum > 1 and clean_lines.elided[linenum - 1].rfind(")") >= 0:
+        if line_num > 1 and clean_lines.elided[line_num - 1].rfind(")") >= 0:
             fragment = line
         else:
             return
 
     # Check that at most one of "override" or "final" is present, not both
     if Search(r"\boverride\b", fragment) and Search(r"\bfinal\b", fragment):
-        error(
-            state,
-            filename,
-            linenum,
+        state.log_error(
+            clean_lines.file_name,
+            line_num,
             "readability/inheritance",
             4,
-            ('"override" is redundant since function is ' 'already declared as "final"'),
+            '"override" is redundant since function is ' 'already declared as "final"',
         )

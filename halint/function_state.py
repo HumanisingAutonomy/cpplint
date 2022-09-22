@@ -1,6 +1,5 @@
 import math
 
-from .error import ErrorLogger
 from .lintstate import LintState
 from .regex import Match
 
@@ -31,12 +30,11 @@ class FunctionState(object):
         if self.in_a_function:
             self.lines_in_function += 1
 
-    def check(self, state: LintState, error: ErrorLogger, filename: str, line_num: int) -> None:
+    def check(self, state: LintState, filename: str, line_num: int) -> None:
         """Report if too many lines in function body.
 
         Args:
             state: The current state of the linting process.
-            error: The function to call with any errors found.
             filename: The name of the current file.
             line_num: The number of the line to check.
         """
@@ -54,8 +52,7 @@ class FunctionState(object):
             # 50 => 0, 100 => 1, 200 => 2, 400 => 3, 800 => 4, 1600 => 5, ...
             if error_level > 5:
                 error_level = 5
-            error(
-                state,
+            state.log_error(
                 filename,
                 line_num,
                 "readability/fn_size",
